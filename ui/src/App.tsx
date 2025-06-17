@@ -1,23 +1,28 @@
-const posts = [
-  {
-    date: "2025-06-05T19:00:01Z",
-    title: "Introducing facet: Reflection for Rust",
-    feed: "fasterthanli.me",
-    icon: "https://cdn.fasterthanli.me/content/img/logo-square-2~fd5dd5c3a1490c10.w900.png",
-    thumbnail:
-      "https://cdn.fasterthanli.me/content/articles/introducing-facet-reflection-for-rust/_thumb~23945b507327fd24.png",
-    description: `I have long been at war against Rust compile times.
-Part of the solution for me was to buy my way into Apple Silicon dreamland, where builds are, like… faster. I remember every time I SSH into an x...`,
-    link: "https://fasterthanli.me/articles/introducing-facet-reflection-for-rust",
-  },
-];
+import { useEffect, useState } from "react";
+
+interface Post {
+  id: string;
+  title: string;
+  link: string;
+  thumbnail: string;
+  date: string;
+  description: string;
+}
 
 export default function App() {
+  const [posts, setPosts] = useState<Post[]>([]);
+
+  useEffect(() => {
+    fetch("/api/posts")
+      .then((res) => res.json())
+      .then(setPosts);
+  }, []);
+
   return (
     <div className="max-w-4xl m-auto">
       <h1 className="text-2xl mx-4 my-6">Posts</h1>
       {posts.map((post) => (
-        <a key={post.title} href={post.link}>
+        <a key={post.id} href={post.link}>
           <div className="flex gap-2 m-4">
             <img
               src={post.thumbnail}
