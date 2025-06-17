@@ -1,0 +1,2 @@
+match_arm_leading_pipes = "Preserve"
+wrap_comments = true

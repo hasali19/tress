@@ -12,12 +12,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  check_server:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout git repo
         uses: actions/checkout@v4
 
-      - run: |
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-features -- -Dwarnings
+
+  check_ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout git repo
+        uses: actions/checkout@v4
+
+      - working-directory: ui
+        run: |
           npm install
           npx @biomejs/biome ci
