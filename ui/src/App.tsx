@@ -1,9 +1,24 @@
+import { Loader2Icon, PlusIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { ThemeProvider } from "./components/theme-provider";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Toaster } from "./components/ui/sonner";
 
 interface Post {
   id: string;
   title: string;
-  link: string;
+  url: string;
   thumbnail: string;
   date: string;
   description: string;
@@ -18,29 +33,89 @@ export default function App() {
       .then(setPosts);
   }, []);
 
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [url, setUrl] = useState("");
+
   return (
-    <div className="max-w-4xl m-auto">
-      <h1 className="text-2xl mx-4 my-6">Posts</h1>
-      {posts.map((post) => (
-        <a key={post.id} href={post.link}>
-          <div className="flex gap-2 m-4">
-            <img
-              src={post.thumbnail}
-              alt=""
-              className="w-[120px] h-[120px] object-cover"
-            />
-            <div className="flex-1 overflow-hidden">
-              <small className="text-xs dark:text-gray-400">
-                {new Date(post.date).toDateString()}
-              </small>
-              <h2 className="font-semibold">{post.title}</h2>
-              <h3 className="line-clamp-3 dark:text-gray-200">
-                {post.description}
-              </h3>
+    <ThemeProvider>
+      <div className="max-w-4xl m-auto">
+        <div className="flex mx-4 my-6">
+          <h1 className="flex-1 text-2xl">Posts</h1>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <PlusIcon /> Add
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add feed</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-3">
+                <Input
+                  id="url-1"
+                  name="url"
+                  placeholder="https://example.com/index.xml"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                />
+              </div>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="outline">Cancel</Button>
+                </DialogClose>
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  onClick={() => {
+                    setSaving(true);
+                    fetch("/api/feeds", {
+                      method: "POST",
+                      headers: {
+                        "content-type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        url,
+                      }),
+                    }).then((res) => {
+                      setSaving(false);
+                      setOpen(false);
+
+                      if (res.status !== 200) {
+                        toast.error("An error occurred while adding feed.");
+                      }
+                    });
+                  }}
+                >
+                  {saving && <Loader2Icon className="animate-spin" />} Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+        {posts.map((post) => (
+          <a key={post.id} href={post.url}>
+            <div className="flex gap-2 m-4 rounded-sm hover:bg-neutral-800 transition-colors">
+              <img
+                src={post.thumbnail}
+                alt=""
+                className="w-[120px] h-[120px] object-cover rounded-sm"
+              />
+              <div className="flex-1 overflow-hidden">
+                <small className="text-xs dark:text-gray-400">
+                  {new Date(post.date).toDateString()}
+                </small>
+                <h2 className="font-semibold">{post.title}</h2>
+                <h3 className="line-clamp-3 dark:text-gray-200">
+                  {post.description}
+                </h3>
+              </div>
             </div>
-          </div>
-        </a>
-      ))}
-    </div>
+          </a>
+        ))}
+      </div>
+      <Toaster position="top-center" />
+    </ThemeProvider>
   );
 }

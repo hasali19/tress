@@ -2,9 +2,9 @@ use std::iter;
 
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{any, get};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::signal;
 use tower_http::services::{ServeDir, ServeFile};
@@ -28,10 +28,13 @@ async fn main() -> eyre::Result<()> {
         .with(tracing_subscriber::fmt::layer().without_time())
         .init();
 
-    let api = Router::new().route("/posts", get(get_posts)).fallback(any((
-        StatusCode::NOT_FOUND,
-        Json(json!({"message": "not found"})),
-    )));
+    let api = Router::new()
+        .route("/feeds", post(create_feed))
+        .route("/posts", get(get_posts))
+        .fallback(any((
+            StatusCode::NOT_FOUND,
+            Json(json!({"message": "not found"})),
+        )));
 
     let app = Router::new()
         .nest("/api", api)
@@ -47,6 +50,13 @@ async fn main() -> eyre::Result<()> {
 
     Ok(())
 }
+
+#[derive(Deserialize)]
+struct CreateFeedReq {
+    url: String,
+}
+
+async fn create_feed(Json(req): Json<CreateFeedReq>) -> impl IntoResponse {}
 
 async fn get_posts() -> impl IntoResponse {
     #[derive(Clone, Serialize)]
