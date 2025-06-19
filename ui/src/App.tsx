@@ -17,11 +17,12 @@ import { Toaster } from "./components/ui/sonner";
 
 interface Post {
   id: string;
+  feed_id: string;
   title: string;
-  url: string;
+  post_time: string;
   thumbnail: string;
-  date: string;
   description: string;
+  url: string;
 }
 
 export default function App() {
@@ -39,7 +40,7 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <div className="max-w-4xl m-auto">
+      <div className="max-w-4xl m-auto flex flex-col min-h-screen">
         <div className="flex mx-4 my-6">
           <h1 className="flex-1 text-2xl">Posts</h1>
           <Dialog open={open} onOpenChange={setOpen}>
@@ -94,6 +95,13 @@ export default function App() {
             </DialogContent>
           </Dialog>
         </div>
+        {posts.length === 0 && (
+          <div className="flex-1 flex flex-col justify-center">
+            <h2 className="text-center">
+              Nothing here. Add some feeds to get started.
+            </h2>
+          </div>
+        )}
         {posts.map((post) => (
           <a key={post.id} href={post.url}>
             <div className="flex gap-2 m-4 rounded-sm hover:bg-neutral-800 transition-colors">
@@ -104,7 +112,7 @@ export default function App() {
               />
               <div className="flex-1 overflow-hidden">
                 <small className="text-xs dark:text-gray-400">
-                  {new Date(post.date).toDateString()}
+                  {new Date(post.post_time).toDateString()}
                 </small>
                 <h2 className="font-semibold">{post.title}</h2>
                 <h3 className="line-clamp-3 dark:text-gray-200">

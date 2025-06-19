@@ -23,7 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
-
-# Added by cargo
-
+# Cargo build directory
 /target
+
+# Sqlite
+*.db
