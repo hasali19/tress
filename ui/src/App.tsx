@@ -15,6 +15,12 @@ import {
 import { Input } from "./components/ui/input";
 import { Toaster } from "./components/ui/sonner";
 
+interface Feed {
+  id: string;
+  title: string;
+  url: string;
+}
+
 interface Post {
   id: string;
   feed_id: string;
@@ -26,12 +32,23 @@ interface Post {
 }
 
 export default function App() {
+  const [feeds, setFeeds] = useState<Record<string, Feed>>({});
   const [posts, setPosts] = useState<Post[]>([]);
 
   useEffect(() => {
-    fetch("/api/posts")
-      .then((res) => res.json())
-      .then(setPosts);
+    (async () => {
+      const feeds = await fetch("/api/feeds")
+        .then((res) => res.json())
+        .then((feeds: Feed[]) =>
+          Object.fromEntries(feeds.map((feed) => [feed.id, feed])),
+        );
+
+      setFeeds(feeds);
+
+      const posts = await fetch("/api/posts").then((res) => res.json());
+
+      setPosts(posts);
+    })();
   }, []);
 
   const [open, setOpen] = useState(false);
@@ -113,15 +130,15 @@ export default function App() {
                 />
               )}
               <div className="flex-1 overflow-hidden">
-                <small className="text-xs dark:text-gray-400">
-                  {new Date(post.post_time).toDateString()}
-                </small>
+                <div className="flex justify-between text-sm dark:text-gray-400">
+                  <small>{feeds[post.feed_id].title}</small>
+                  <small>{new Date(post.post_time).toDateString()}</small>
+                </div>
                 <h2 className="font-semibold">{post.title}</h2>
                 {post.description && (
-                  <div
-                    className="line-clamp-3 dark:text-gray-200"
-                    dangerouslySetInnerHTML={{ __html: post.description }}
-                  />
+                  <div className="line-clamp-3 dark:text-gray-200">
+                    {post.description}
+                  </div>
                 )}
               </div>
             </div>
