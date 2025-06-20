@@ -20,8 +20,8 @@ interface Post {
   feed_id: string;
   title: string;
   post_time: string;
-  thumbnail: string;
-  description: string;
+  thumbnail: string | null;
+  description: string | null;
   url: string;
 }
 
@@ -105,19 +105,24 @@ export default function App() {
         {posts.map((post) => (
           <a key={post.id} href={post.url}>
             <div className="flex gap-2 m-4 rounded-sm hover:bg-neutral-800 transition-colors">
-              <img
-                src={post.thumbnail}
-                alt=""
-                className="w-[120px] h-[120px] object-cover rounded-sm"
-              />
+              {post.thumbnail && (
+                <img
+                  src={post.thumbnail}
+                  alt=""
+                  className="w-[120px] h-[120px] object-cover rounded-sm"
+                />
+              )}
               <div className="flex-1 overflow-hidden">
                 <small className="text-xs dark:text-gray-400">
                   {new Date(post.post_time).toDateString()}
                 </small>
                 <h2 className="font-semibold">{post.title}</h2>
-                <h3 className="line-clamp-3 dark:text-gray-200">
-                  {post.description}
-                </h3>
+                {post.description && (
+                  <div
+                    className="line-clamp-3 dark:text-gray-200"
+                    dangerouslySetInnerHTML={{ __html: post.description }}
+                  />
+                )}
               </div>
             </div>
           </a>

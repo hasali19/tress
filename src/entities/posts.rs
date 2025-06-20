@@ -9,10 +9,11 @@ pub struct Model {
     pub id: Uuid,
     pub feed_id: Uuid,
     pub title: String,
-    pub description: String,
-    pub post_time: String,
+    pub description: Option<String>,
+    pub publish_time: String,
+    #[sea_orm(unique)]
     pub url: String,
-    pub thumbnail: String,
+    pub thumbnail: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -7,11 +7,16 @@ edition = "2024"
 members = ["migration"]
 
 [dependencies]
+atom_syndication = "0.12.7"
 axum = "0.8.4"
 color-eyre = "0.6.5"
 eyre = "0.6.12"
 itertools = "0.14.0"
+log = "0.4.27"
 migration = { path = "migration" }
+reqwest = "0.12.20"
+rss = "2.0.12"
+scraper = "0.23.1"
 sea-orm = { version = "1.1.0", features = [
     "sqlx-sqlite",
     "runtime-tokio-rustls",
@@ -19,6 +24,7 @@ sea-orm = { version = "1.1.0", features = [
 ] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = [
     "macros",
     "rt-multi-thread",

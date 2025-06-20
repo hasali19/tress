@@ -11,7 +11,8 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table("feeds")
                     .col(pk_uuid("id"))
-                    .col(string("url").unique_key())
+                    .col(string("title"))
+                    .col(string_uniq("url"))
                     .to_owned(),
             )
             .await?;
@@ -23,10 +24,10 @@ impl MigrationTrait for Migration {
                     .col(pk_uuid("id"))
                     .col(uuid("feed_id"))
                     .col(string("title"))
-                    .col(string("description").null())
-                    .col(string("post_time"))
-                    .col(string("url"))
-                    .col(string("thumbnail").null())
+                    .col(string_null("description"))
+                    .col(string("publish_time"))
+                    .col(string_uniq("url"))
+                    .col(string_null("thumbnail"))
                     .foreign_key(
                         ForeignKey::create()
                             .from_col("feed_id")
