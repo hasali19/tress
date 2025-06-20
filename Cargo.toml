@@ -9,6 +9,7 @@ members = ["migration"]
 [dependencies]
 atom_syndication = "0.12.7"
 axum = "0.8.4"
+backon = "1.5.1"
 color-eyre = "0.6.5"
 eyre = "0.6.12"
 itertools = "0.14.0"

@@ -8,11 +8,12 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
     pub feed_id: Uuid,
-    pub title: String,
-    pub description: Option<String>,
-    pub publish_time: String,
     #[sea_orm(unique)]
     pub url: String,
+    pub title: String,
+    pub publish_time: String,
+    pub description: Option<String>,
+    pub content: Option<String>,
     pub thumbnail: Option<String>,
 }
 
@@ -23,7 +24,7 @@ pub enum Relation {
         from = "Column::FeedId",
         to = "super::feeds::Column::Id",
         on_update = "NoAction",
-        on_delete = "Cascade"
+        on_delete = "NoAction"
     )]
     Feeds,
 }

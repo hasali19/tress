@@ -11,8 +11,10 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table("feeds")
                     .col(pk_uuid("id"))
-                    .col(string("title"))
                     .col(string_uniq("url"))
+                    .col(string("title"))
+                    .col(string_null("icon"))
+                    .col(string_null("thumbnail"))
                     .to_owned(),
             )
             .await?;
@@ -23,17 +25,17 @@ impl MigrationTrait for Migration {
                     .table("posts")
                     .col(pk_uuid("id"))
                     .col(uuid("feed_id"))
-                    .col(string("title"))
-                    .col(string_null("description"))
-                    .col(string("publish_time"))
                     .col(string_uniq("url"))
+                    .col(string("title"))
+                    .col(string("publish_time"))
+                    .col(string_null("description"))
+                    .col(string_null("content"))
                     .col(string_null("thumbnail"))
                     .foreign_key(
                         ForeignKey::create()
                             .from_col("feed_id")
                             .to_tbl("feeds")
-                            .to_col("id")
-                            .on_delete(ForeignKeyAction::Cascade),
+                            .to_col("id"),
                     )
                     .to_owned(),
             )

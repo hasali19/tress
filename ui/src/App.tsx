@@ -28,6 +28,7 @@ interface Post {
   post_time: string;
   thumbnail: string | null;
   description: string | null;
+  content: string | null;
   url: string;
 }
 
@@ -120,7 +121,7 @@ export default function App() {
         )}
         {posts.map((post) => (
           <a key={post.id} href={post.url}>
-            <div className="flex gap-2 m-4 rounded-sm hover:bg-neutral-800 transition-colors">
+            <div className="flex gap-2 m-4 p-1 rounded-sm hover:bg-neutral-800 transition-colors">
               {post.thumbnail && (
                 <img
                   src={post.thumbnail}
@@ -128,7 +129,7 @@ export default function App() {
                   className="w-[120px] h-[120px] object-cover rounded-sm"
                 />
               )}
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-hidden p-1">
                 <div className="flex justify-between text-sm dark:text-gray-400">
                   <small>{feeds[post.feed_id].title}</small>
                   <small>{new Date(post.post_time).toDateString()}</small>
