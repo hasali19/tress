@@ -72,7 +72,6 @@ export default function App() {
               </DialogHeader>
               <div className="grid gap-3">
                 <Input
-                  id="url-1"
                   name="url"
                   placeholder="https://example.com/index.xml"
                   value={url}
