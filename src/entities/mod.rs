@@ -4,3 +4,4 @@ pub mod prelude;
 
 pub mod feeds;
 pub mod posts;
+pub mod push_subscriptions;

@@ -2,3 +2,4 @@
 
 pub use super::feeds::Entity as Feeds;
 pub use super::posts::Entity as Posts;
+pub use super::push_subscriptions::Entity as PushSubscriptions;

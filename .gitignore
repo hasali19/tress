@@ -26,5 +26,6 @@ dist-ssr
 # Cargo build directory
 /target
 
-# Sqlite
+# App data
 *.db
+*.pem

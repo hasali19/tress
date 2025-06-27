@@ -1,16 +1,18 @@
 mod entities;
 
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{any, get};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use backon::{ExponentialBuilder, Retryable};
 use eyre::eyre;
 use itertools::Itertools;
-use migration::{Migrator, MigratorTrait};
+use migration::{Migrator, MigratorTrait, OnConflict};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use sea_orm::prelude::Uuid;
@@ -28,13 +30,18 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::entities::prelude::*;
-use crate::entities::{feeds, posts};
+use crate::entities::{feeds, posts, push_subscriptions};
 
 #[derive(Clone)]
 struct App {
     db: DatabaseConnection,
     sync_sender: mpsc::UnboundedSender<SyncRequest>,
     http_client: Client,
+    vapid_key: Arc<VapidKey>,
+}
+
+struct VapidKey {
+    public_key: String,
 }
 
 #[tokio::main]
@@ -50,6 +57,15 @@ async fn main() -> eyre::Result<()> {
         .init();
 
     let db = init_db().await?;
+
+    let key_path = Path::new("private_key.pem");
+    let vapid_key = if let Ok(key) = vapid::Key::from_pem(key_path) {
+        key
+    } else {
+        let key = vapid::Key::generate()?;
+        key.to_pem(key_path)?;
+        key
+    };
 
     let (sync_sender, sync_receiver) = mpsc::unbounded_channel();
 
@@ -70,6 +86,8 @@ async fn main() -> eyre::Result<()> {
     ));
 
     let api = Router::new()
+        .route("/config", get(get_config))
+        .route("/push_subscriptions", post(create_push_subscription))
         .route("/feeds", get(get_feeds).post(add_feed))
         .route("/posts", get(get_posts))
         .fallback(any((
@@ -80,6 +98,9 @@ async fn main() -> eyre::Result<()> {
             db: db.clone(),
             sync_sender,
             http_client,
+            vapid_key: Arc::new(VapidKey {
+                public_key: vapid_key.to_public_raw(),
+            }),
         });
 
     let app = Router::new()
@@ -110,6 +131,50 @@ async fn init_db() -> eyre::Result<DatabaseConnection> {
     let db = Database::connect(options).await?;
     Migrator::up(&db, None).await?;
     Ok(db)
+}
+
+#[derive(Debug, Deserialize)]
+struct PushSubscriptionReq {
+    subscription: PushSubscriptionData,
+}
+
+#[derive(Debug, Deserialize)]
+struct PushSubscriptionData {
+    endpoint: String,
+    keys: PushSubscriptionKeys,
+}
+
+#[derive(Debug, Deserialize)]
+struct PushSubscriptionKeys {
+    auth: String,
+    p256dh: String,
+}
+
+async fn create_push_subscription(State(app): State<App>, Json(body): Json<PushSubscriptionReq>) {
+    let subscription = push_subscriptions::ActiveModel {
+        id: ActiveValue::NotSet,
+        endpoint: ActiveValue::Set(body.subscription.endpoint),
+        auth_key: ActiveValue::Set(body.subscription.keys.auth),
+        p256dh_key: ActiveValue::Set(body.subscription.keys.p256dh),
+    };
+
+    PushSubscriptions::insert(subscription)
+        .on_conflict(
+            OnConflict::column("endpoint")
+                .update_columns(["auth_key", "p256dh_key"])
+                .to_owned(),
+        )
+        .exec(&app.db)
+        .await
+        .unwrap();
+}
+
+async fn get_config(State(app): State<App>) -> impl IntoResponse {
+    Json(json!({
+        "vapid": {
+            "public_key": app.vapid_key.public_key,
+        }
+    }))
 }
 
 #[derive(Clone, Serialize)]
