@@ -92,7 +92,9 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - check_server
+      - check_ui
       - build_server
+      - build_ui
     if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       packages: write

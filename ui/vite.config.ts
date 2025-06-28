@@ -15,7 +15,7 @@ export default defineConfig({
       filename: "sw.ts",
       strategies: "injectManifest",
       injectManifest: {
-        minify: false,
+        injectionPoint: undefined,
       },
       devOptions: {
         enabled: true,
