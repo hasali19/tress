@@ -111,9 +111,7 @@ async fn main() -> eyre::Result<()> {
         .nest("/api", api)
         .fallback_service(ServeDir::new("ui/dist").fallback(ServeFile::new("ui/dist/index.html")));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
     tracing::info!("server listening at http://{}", listener.local_addr()?);
 
