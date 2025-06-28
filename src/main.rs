@@ -420,7 +420,12 @@ async fn run_sync_worker(
                             content: ActiveValue::Set(
                                 entry.content.and_then(|content| content.value),
                             ),
-                            publish_time: ActiveValue::Set(entry.updated.to_rfc3339()),
+                            publish_time: ActiveValue::Set(
+                                entry
+                                    .published
+                                    .map(|t| t.to_rfc3339())
+                                    .unwrap_or_else(|| entry.updated.to_rfc3339()),
+                            ),
                             thumbnail: ActiveValue::Set(None),
                         };
 
