@@ -1,5 +1,7 @@
 # Tress
 
+[![CI](https://github.com/hasali19/tress/actions/workflows/ci.yaml/badge.svg)](https://github.com/hasali19/tress/actions/workflows/ci.yaml)
+
 Tress is a minimal self-hosted RSS/Atom feed viewer. Feeds are synced periodically and Tress can send push notifications to clients when new posts are available.
 
 ## Usage
