@@ -54,7 +54,10 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      setPushEnabled((await getPushSubscriptionStatus()) === "subscribed");
+      setPushEnabled(
+        Notification.permission === "granted" &&
+          (await getPushSubscriptionStatus()) === "subscribed",
+      );
     })();
   }, []);
 
