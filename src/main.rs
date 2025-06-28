@@ -73,7 +73,12 @@ async fn main() -> eyre::Result<()> {
     tokio::spawn({
         let sync_sender = sync_sender.clone();
         async move {
-            sync_sender.send(SyncRequest::All).unwrap();
+            sync_sender
+                .send(SyncRequest {
+                    scope: SyncScope::All,
+                    notify: true,
+                })
+                .unwrap();
             tokio::time::sleep(Duration::from_secs(60 * 60)).await;
         }
     });
@@ -275,7 +280,10 @@ async fn add_feed(
 
     tracing::info!("added feed: {feed:?}");
 
-    let _ = app.sync_sender.send(SyncRequest::Feed(feed.id));
+    let _ = app.sync_sender.send(SyncRequest {
+        scope: SyncScope::Feed(feed.id),
+        notify: false,
+    });
 
     Ok(Json(FeedResponse {
         id: feed.id.to_string(),
@@ -324,7 +332,12 @@ async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, StatusCo
     ))
 }
 
-enum SyncRequest {
+struct SyncRequest {
+    scope: SyncScope,
+    notify: bool,
+}
+
+enum SyncScope {
     All,
     Feed(Uuid),
 }
@@ -336,9 +349,9 @@ async fn run_sync_worker(
     push_client: PushClient,
 ) {
     while let Some(req) = receiver.recv().await {
-        let feeds = match req {
-            SyncRequest::All => Feeds::find().all(&db).await.unwrap(),
-            SyncRequest::Feed(id) => Feeds::find_by_id(id)
+        let feeds = match req.scope {
+            SyncScope::All => Feeds::find().all(&db).await.unwrap(),
+            SyncScope::Feed(id) => Feeds::find_by_id(id)
                 .one(&db)
                 .await
                 .unwrap()
@@ -414,22 +427,24 @@ async fn run_sync_worker(
                         .await
                         .unwrap();
 
-                        for subscription in PushSubscriptions::find().all(&db).await.unwrap() {
-                            if let Err(e) = push_client
-                                .send_message(
-                                    &subscription,
-                                    &json!({
-                                        "id": post.id.to_string(),
-                                        "title": post.title,
-                                    }),
-                                )
-                                .await
-                            {
-                                tracing::error!(
-                                    subscription.id,
-                                    subscription.endpoint,
-                                    "Failed to send push message: {e}",
-                                );
+                        if req.notify {
+                            for subscription in PushSubscriptions::find().all(&db).await.unwrap() {
+                                if let Err(e) = push_client
+                                    .send_message(
+                                        &subscription,
+                                        &json!({
+                                            "id": post.id.to_string(),
+                                            "title": post.title,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::error!(
+                                        subscription.id,
+                                        subscription.endpoint,
+                                        "Failed to send push message: {e}",
+                                    );
+                                }
                             }
                         }
                     }
