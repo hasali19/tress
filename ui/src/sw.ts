@@ -15,5 +15,10 @@ async function onPush(e: PushEvent) {
 
   console.log("push", data);
 
-  await self.registration.showNotification(data.title);
+  const post = await fetch(`/api/posts/${data.id}`).then((res) => res.json());
+
+  await self.registration.showNotification(data.title, {
+    body: post.description,
+    image: post.thumbnail,
+  } as NotificationOptions);
 }

@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{self, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{any, get, post};
@@ -101,6 +101,7 @@ async fn main() -> eyre::Result<()> {
         .route("/push_subscriptions", post(create_push_subscription))
         .route("/feeds", get(get_feeds).post(add_feed))
         .route("/posts", get(get_posts))
+        .route("/posts/{id}", get(get_post))
         .fallback(any((
             StatusCode::NOT_FOUND,
             Json(json!({"message": "not found"})),
@@ -292,6 +293,17 @@ async fn add_feed(
     }))
 }
 
+#[derive(Clone, Serialize)]
+struct PostResponse {
+    id: String,
+    feed_id: String,
+    title: String,
+    post_time: String,
+    thumbnail: Option<String>,
+    description: Option<String>,
+    url: String,
+}
+
 async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, StatusCode> {
     let posts = match Posts::find()
         .order_by_desc(posts::Column::PublishTime)
@@ -305,21 +317,10 @@ async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, StatusCo
         }
     };
 
-    #[derive(Clone, Serialize)]
-    struct Post {
-        id: String,
-        feed_id: String,
-        title: String,
-        post_time: String,
-        thumbnail: Option<String>,
-        description: Option<String>,
-        url: String,
-    }
-
     Ok(Json(
         posts
             .into_iter()
-            .map(|post| Post {
+            .map(|post| PostResponse {
                 id: post.id.to_string(),
                 feed_id: post.feed_id.to_string(),
                 title: post.title,
@@ -330,6 +331,30 @@ async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, StatusCo
             })
             .collect_vec(),
     ))
+}
+
+async fn get_post(
+    State(app): State<App>,
+    extract::Path(id): extract::Path<Uuid>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let post = match Posts::find_by_id(id).one(&app.db).await {
+        Ok(Some(post)) => post,
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(e) => {
+            tracing::error!("{e}");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    Ok(Json(PostResponse {
+        id: post.id.to_string(),
+        feed_id: post.feed_id.to_string(),
+        title: post.title,
+        post_time: post.publish_time,
+        thumbnail: post.thumbnail,
+        description: post.description,
+        url: post.url,
+    }))
 }
 
 struct SyncRequest {
