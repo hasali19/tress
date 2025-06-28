@@ -10,10 +10,11 @@ use axum::response::IntoResponse;
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use backon::{ExponentialBuilder, Retryable};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use eyre::eyre;
 use itertools::Itertools;
 use migration::{Migrator, MigratorTrait, OnConflict};
-use reqwest::Client;
+use reqwest::{Client, Request};
 use scraper::{Html, Selector};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
@@ -28,6 +29,9 @@ use tokio::sync::mpsc;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use web_push_native::jwt_simple::prelude::{ECDSAP256KeyPairLike, ES256KeyPair};
+use web_push_native::p256::PublicKey;
+use web_push_native::{Auth, WebPushBuilder};
 
 use crate::entities::prelude::*;
 use crate::entities::{feeds, posts, push_subscriptions};
@@ -37,11 +41,7 @@ struct App {
     db: DatabaseConnection,
     sync_sender: mpsc::UnboundedSender<SyncRequest>,
     http_client: Client,
-    vapid_key: Arc<VapidKey>,
-}
-
-struct VapidKey {
-    public_key: String,
+    vapid_key: Arc<ES256KeyPair>,
 }
 
 #[tokio::main]
@@ -59,13 +59,14 @@ async fn main() -> eyre::Result<()> {
     let db = init_db().await?;
 
     let key_path = Path::new("private_key.pem");
-    let vapid_key = if let Ok(key) = vapid::Key::from_pem(key_path) {
-        key
+    let vapid_key = Arc::new(if let Ok(key) = std::fs::read_to_string(key_path) {
+        ES256KeyPair::from_pem(&key).map_err(|e| eyre!(e))?
     } else {
-        let key = vapid::Key::generate()?;
-        key.to_pem(key_path)?;
+        let key = ES256KeyPair::generate();
+        let pem = key.to_pem().map_err(|e| eyre!(e))?;
+        std::fs::write(key_path, pem)?;
         key
-    };
+    });
 
     let (sync_sender, sync_receiver) = mpsc::unbounded_channel();
 
@@ -78,11 +79,16 @@ async fn main() -> eyre::Result<()> {
     });
 
     let http_client = Client::new();
+    let push_client = PushClient {
+        http_client: http_client.clone(),
+        vapid_key: vapid_key.clone(),
+    };
 
     tokio::spawn(run_sync_worker(
         sync_receiver,
         http_client.clone(),
         db.clone(),
+        push_client,
     ));
 
     let api = Router::new()
@@ -98,9 +104,7 @@ async fn main() -> eyre::Result<()> {
             db: db.clone(),
             sync_sender,
             http_client,
-            vapid_key: Arc::new(VapidKey {
-                public_key: vapid_key.to_public_raw(),
-            }),
+            vapid_key,
         });
 
     let app = Router::new()
@@ -120,6 +124,35 @@ async fn main() -> eyre::Result<()> {
     db.close().await?;
 
     Ok(())
+}
+
+#[derive(Clone)]
+struct PushClient {
+    http_client: Client,
+    vapid_key: Arc<ES256KeyPair>,
+}
+
+impl PushClient {
+    async fn send_message(
+        &self,
+        subscription: &push_subscriptions::Model,
+        message: &impl serde::Serialize,
+    ) -> eyre::Result<()> {
+        let req = WebPushBuilder::new(
+            subscription.endpoint.parse()?,
+            PublicKey::from_sec1_bytes(&Base64UrlUnpadded::decode_vec(&subscription.p256dh_key)?)?,
+            Auth::clone_from_slice(&Base64UrlUnpadded::decode_vec(&subscription.auth_key)?),
+        )
+        .with_vapid(&self.vapid_key, "mailto:hasan@hasali.dev")
+        .build(serde_json::to_vec(message)?)?;
+
+        self.http_client
+            .execute(Request::try_from(req)?)
+            .await?
+            .error_for_status()?;
+
+        Ok(())
+    }
 }
 
 async fn init_db() -> eyre::Result<DatabaseConnection> {
@@ -170,9 +203,15 @@ async fn create_push_subscription(State(app): State<App>, Json(body): Json<PushS
 }
 
 async fn get_config(State(app): State<App>) -> impl IntoResponse {
+    let public_key_bytes = app
+        .vapid_key
+        .key_pair()
+        .public_key()
+        .to_bytes_uncompressed();
+
     Json(json!({
         "vapid": {
-            "public_key": app.vapid_key.public_key,
+            "public_key": Base64UrlUnpadded::encode_string(&public_key_bytes),
         }
     }))
 }
@@ -294,8 +333,9 @@ enum SyncRequest {
 
 async fn run_sync_worker(
     mut receiver: mpsc::UnboundedReceiver<SyncRequest>,
-    client: Client,
+    http_client: Client,
     db: DatabaseConnection,
+    push_client: PushClient,
 ) {
     while let Some(req) = receiver.recv().await {
         let feeds = match req {
@@ -311,7 +351,7 @@ async fn run_sync_worker(
         for feed_model in feeds {
             tracing::info!("syncing posts from {}", feed_model.url);
 
-            let feed = fetch_feed(&client, &feed_model.url).await.unwrap();
+            let feed = fetch_feed(&http_client, &feed_model.url).await.unwrap();
 
             match feed {
                 Feed::Atom(feed) => {
@@ -350,7 +390,7 @@ async fn run_sync_worker(
                             }
                         };
 
-                        let content = (|| fetch_page_content(&client, &post.url))
+                        let content = (|| fetch_page_content(&http_client, &post.url))
                             .retry(ExponentialBuilder::default())
                             .sleep(tokio::time::sleep)
                             .notify(|err, duration| {
@@ -375,6 +415,25 @@ async fn run_sync_worker(
                         .update(&db)
                         .await
                         .unwrap();
+
+                        for subscription in PushSubscriptions::find().all(&db).await.unwrap() {
+                            if let Err(e) = push_client
+                                .send_message(
+                                    &subscription,
+                                    &json!({
+                                        "id": post.id.to_string(),
+                                        "title": post.title,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::error!(
+                                    subscription.id,
+                                    subscription.endpoint,
+                                    "Failed to send push message: {e}",
+                                );
+                            }
+                        }
                     }
                 }
                 Feed::Rss(_channel) => {

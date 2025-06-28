@@ -1,3 +1,4 @@
+import { Base64 } from "js-base64";
 import { Loader2Icon, PlusIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -36,6 +37,85 @@ export default function App() {
   const [feeds, setFeeds] = useState<Record<string, Feed>>({});
   const [posts, setPosts] = useState<Post[]>([]);
 
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [url, setUrl] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const registration = await navigator.serviceWorker.ready;
+      const config = await fetch("/api/config").then((res) => res.json());
+
+      let subscription = await registration.pushManager.getSubscription();
+
+      function isEqual(a: Uint8Array, b: Uint8Array) {
+        if (a.length !== b.length) {
+          return false;
+        }
+
+        for (let i = 0; i < a.length; i++) {
+          if (a[i] !== b[i]) {
+            return false;
+          }
+        }
+
+        return true;
+      }
+
+      if (subscription) {
+        // Decode public key from server to bytes
+        const serverPublicKey = Base64.toUint8Array(config.vapid.public_key);
+        // Check if the server public key has changed compared to the public key
+        // used for the existing subscription
+        if (
+          !subscription.options.applicationServerKey ||
+          !isEqual(
+            new Uint8Array(subscription.options.applicationServerKey),
+            serverPublicKey,
+          )
+        ) {
+          console.log(
+            "Server public key has changed, unsubscribing from push service",
+            serverPublicKey,
+            subscription.options.applicationServerKey,
+          );
+          // If the public key has changed, we need to unsubscribe and resubscribe
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+      }
+
+      if (!subscription) {
+        console.log("Subscribing to push service", config);
+        const publicKey = config.vapid.public_key;
+        try {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: publicKey,
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      if (!subscription) {
+        console.error("Failed to subscribe to push service");
+        return;
+      }
+
+      await fetch("/api/push_subscriptions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          subscription: subscription.toJSON(),
+          encodings: PushManager.supportedContentEncodings,
+        }),
+      });
+    })();
+  }, []);
+
   useEffect(() => {
     (async () => {
       const feeds = await fetch("/api/feeds")
@@ -51,10 +131,6 @@ export default function App() {
       setPosts(posts);
     })();
   }, []);
-
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [url, setUrl] = useState("");
 
   return (
     <ThemeProvider>
@@ -96,12 +172,24 @@ export default function App() {
                       body: JSON.stringify({
                         url,
                       }),
-                    }).then((res) => {
+                    }).then(async (res) => {
                       setSaving(false);
                       setOpen(false);
 
                       if (res.status !== 200) {
                         toast.error("An error occurred while adding feed.");
+                      }
+
+                      // TODO: Add a toggle button to enable notifications
+                      if (Notification.permission !== "granted") {
+                        console.log("Requesting notification permission");
+                        const permission =
+                          await Notification.requestPermission();
+                        if (permission !== "granted") {
+                          toast.warning("Unable to send notifications");
+                        } else {
+                          console.log("Notification permission granted");
+                        }
                       }
                     });
                   }}

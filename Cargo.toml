@@ -10,6 +10,7 @@ members = ["migration"]
 atom_syndication = "0.12.7"
 axum = "0.8.4"
 backon = "1.5.1"
+base64ct = "1.8.0"
 color-eyre = "0.6.5"
 eyre = "0.6.12"
 itertools = "0.14.0"
@@ -36,3 +37,4 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 uuid = { version = "1.17.0", features = ["v4"] }
 vapid = "0.6.0"
+web-push-native = "0.4.0"
