@@ -58,7 +58,7 @@ async fn main() -> eyre::Result<()> {
 
     let db = init_db().await?;
 
-    let key_path = Path::new("private_key.pem");
+    let key_path = Path::new("data/private_key.pem");
     let vapid_key = Arc::new(if let Ok(key) = std::fs::read_to_string(key_path) {
         ES256KeyPair::from_pem(&key).map_err(|e| eyre!(e))?
     } else {
@@ -157,7 +157,7 @@ impl PushClient {
 
 async fn init_db() -> eyre::Result<DatabaseConnection> {
     // TODO: DB url should be configurable
-    let mut options = ConnectOptions::new("sqlite://tress.db?mode=rwc");
+    let mut options = ConnectOptions::new("sqlite://data/tress.db?mode=rwc");
     options
         .max_connections(1)
         .sqlx_logging_level(log::LevelFilter::Debug);
