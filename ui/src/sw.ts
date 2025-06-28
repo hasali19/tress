@@ -20,5 +20,25 @@ async function onPush(e: PushEvent) {
   await self.registration.showNotification(data.title, {
     body: post.description,
     image: post.thumbnail,
+    data: {
+      url: post.url,
+    },
   } as NotificationOptions);
 }
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+
+  e.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clients) => {
+      for (const client of clients) {
+        if (client.url === e.notification.data.url && "focus" in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(e.notification.data.url);
+      }
+    }),
+  );
+});
