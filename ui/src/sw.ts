@@ -2,7 +2,7 @@
 
 declare let self: ServiceWorkerGlobalScope;
 
-self.addEventListener("install", (e) => {
+self.addEventListener("install", () => {
   console.log("service worker installed");
 });
 
