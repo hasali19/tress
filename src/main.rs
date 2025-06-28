@@ -141,7 +141,7 @@ impl PushClient {
         &self,
         subscription: &push_subscriptions::Model,
         message: &impl serde::Serialize,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<bool> {
         let req = WebPushBuilder::new(
             subscription.endpoint.parse()?,
             PublicKey::from_sec1_bytes(&Base64UrlUnpadded::decode_vec(&subscription.p256dh_key)?)?,
@@ -150,12 +150,15 @@ impl PushClient {
         .with_vapid(&self.vapid_key, "mailto:hasan@hasali.dev")
         .build(serde_json::to_vec(message)?)?;
 
-        self.http_client
-            .execute(Request::try_from(req)?)
-            .await?
-            .error_for_status()?;
+        let res = self.http_client.execute(Request::try_from(req)?).await?;
 
-        Ok(())
+        if res.status() == StatusCode::GONE {
+            return Ok(false);
+        }
+
+        res.error_for_status()?;
+
+        Ok(true)
     }
 }
 
@@ -471,7 +474,7 @@ async fn run_sync_worker(
 
                         if req.notify {
                             for subscription in PushSubscriptions::find().all(&db).await.unwrap() {
-                                if let Err(e) = push_client
+                                match push_client
                                     .send_message(
                                         &subscription,
                                         &json!({
@@ -481,11 +484,21 @@ async fn run_sync_worker(
                                     )
                                     .await
                                 {
-                                    tracing::error!(
-                                        subscription.id,
-                                        subscription.endpoint,
-                                        "Failed to send push message: {e}",
-                                    );
+                                    Ok(is_valid) => {
+                                        if !is_valid {
+                                            PushSubscriptions::delete_by_id(subscription.id)
+                                                .exec(&db)
+                                                .await
+                                                .unwrap();
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            subscription.id,
+                                            subscription.endpoint,
+                                            "Failed to send push message: {e}",
+                                        );
+                                    }
                                 }
                             }
                         }
