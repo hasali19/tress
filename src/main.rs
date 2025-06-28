@@ -398,11 +398,23 @@ async fn run_sync_worker(
                                 html.root_element().text().join("")
                             });
 
+                        let content_url = entry
+                            .links
+                            .iter()
+                            .find(|link| {
+                                link.rel == "alternate"
+                                    && link.mime_type.as_deref() == Some("text/html")
+                            })
+                            .or_else(|| entry.links.iter().find(|link| link.rel == "alternate"))
+                            .or_else(|| entry.links.first())
+                            .map(|link| &link.href)
+                            .unwrap_or(&entry.id);
+
                         let post_id = Uuid::new_v4();
                         let post = posts::ActiveModel {
                             id: ActiveValue::Set(post_id),
                             feed_id: ActiveValue::Set(feed_model.id),
-                            url: ActiveValue::Set(entry.id),
+                            url: ActiveValue::Set(content_url.to_owned()),
                             title: ActiveValue::Set(entry.title.value),
                             description: ActiveValue::Set(description),
                             content: ActiveValue::Set(
