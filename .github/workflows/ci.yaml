@@ -75,6 +75,7 @@ jobs:
     needs:
       - check_server
       - build_server
+    if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       packages: write
     steps:
