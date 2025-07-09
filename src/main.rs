@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::{self, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
@@ -52,7 +52,7 @@ async fn main() -> eyre::Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("info,{}=debug", env!("CARGO_CRATE_NAME")).into()),
+                .unwrap_or_else(|_| format!("info,{}=trace", env!("CARGO_CRATE_NAME")).into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -86,7 +86,14 @@ async fn main() -> eyre::Result<()> {
         }
     });
 
-    let http_client = Client::new();
+    let http_client = Client::builder()
+        .default_headers({
+            let mut headers = HeaderMap::new();
+            headers.insert("User-Agent", "Tress".parse()?);
+            headers
+        })
+        .build()?;
+
     let push_client = PushClient {
         http_client: http_client.clone(),
         vapid_key: vapid_key.clone(),
@@ -263,7 +270,13 @@ async fn add_feed(
     State(app): State<App>,
     Json(req): Json<CreateFeedReq>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let feed = fetch_feed(&app.http_client, &req.url).await.unwrap();
+    let feed = match fetch_feed(&app.http_client, &req.url).await {
+        Ok(feed) => feed,
+        Err(e) => {
+            tracing::error!("{e:?}");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
 
     let title = match feed {
         Feed::Atom(feed) => feed.title.value,
@@ -637,15 +650,27 @@ struct FeedParseError {
 }
 
 async fn fetch_feed(client: &Client, url: &str) -> eyre::Result<Feed> {
-    let content = client.get(url).send().await?.bytes().await?;
+    let res = client.get(url).send().await?;
+
+    tracing::trace!(
+        "Fetched feed content from {url} with status: {}",
+        res.status().as_str()
+    );
+
+    let content = res.bytes().await?;
+
     match atom_syndication::Feed::read_from(&content[..]) {
         Ok(feed) => Ok(Feed::Atom(Box::new(feed))),
         Err(atom_error) => match rss::Channel::read_from(&content[..]) {
             Ok(channel) => Ok(Feed::Rss(Box::new(channel))),
-            Err(rss_error) => Err(eyre!(FeedParseError {
-                atom: atom_error,
-                rss: rss_error,
-            })),
+            Err(rss_error) => {
+                tracing::debug!("Failed to parse as Atom feed: {atom_error}");
+                tracing::debug!("Failed to parse as RSS feed: {rss_error}");
+                Err(eyre!(FeedParseError {
+                    atom: atom_error,
+                    rss: rss_error,
+                }))
+            }
         },
     }
 }
