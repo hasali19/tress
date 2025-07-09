@@ -11,6 +11,7 @@ use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use backon::{ExponentialBuilder, Retryable};
 use base64ct::{Base64UrlUnpadded, Encoding};
+use chrono::{DateTime, Local};
 use eyre::eyre;
 use itertools::Itertools;
 use migration::{Migrator, MigratorTrait, OnConflict};
@@ -504,9 +505,111 @@ async fn run_sync_worker(
                         }
                     }
                 }
-                Feed::Rss(_channel) => {
-                    // TODO: RSS support
-                    tracing::warn!("rss not yet implemented");
+                Feed::Rss(channel) => {
+                    for item in channel.items {
+                        let Some(content_url) = item.link else {
+                            tracing::error!("RSS post without link: {:?}", item);
+                            continue;
+                        };
+
+                        let description = item.description.as_deref().map(|summary| {
+                            let html = Html::parse_fragment(summary);
+                            html.root_element().text().join("")
+                        });
+
+                        let post_id = Uuid::new_v4();
+                        let post = posts::ActiveModel {
+                            id: ActiveValue::Set(post_id),
+                            feed_id: ActiveValue::Set(feed_model.id),
+                            url: ActiveValue::Set(content_url),
+                            title: ActiveValue::Set(
+                                item.title.unwrap_or_else(|| "Untitled".to_owned()),
+                            ),
+                            description: ActiveValue::Set(description),
+                            content: ActiveValue::Set(None),
+                            publish_time: ActiveValue::Set(
+                                item.pub_date
+                                    .and_then(|t| {
+                                        DateTime::parse_from_rfc2822(&t)
+                                            .ok()
+                                            .map(|t| t.to_rfc3339())
+                                    })
+                                    .unwrap_or_else(|| Local::now().to_rfc3339()),
+                            ),
+                            thumbnail: ActiveValue::Set(None),
+                        };
+
+                        tracing::debug!(?post.title, ?post.url, "inserting post");
+
+                        let post = match post.insert(&db).await {
+                            Ok(post) => post,
+                            Err(e) => {
+                                if let Some(SqlErr::UniqueConstraintViolation(_)) = e.sql_err() {
+                                    tracing::debug!("skipping post as it already exists");
+                                } else {
+                                    tracing::error!("{e}");
+                                }
+                                continue;
+                            }
+                        };
+
+                        let content = (|| fetch_page_content(&http_client, &post.url))
+                            .retry(ExponentialBuilder::default())
+                            .sleep(tokio::time::sleep)
+                            .notify(|err, duration| {
+                                tracing::warn!("retrying {err:?} after {duration:?}");
+                            })
+                            .await
+                            .unwrap();
+
+                        let image = {
+                            Html::parse_document(&content)
+                                .select(&Selector::parse("meta[property=\"og:image\"]").unwrap())
+                                .next()
+                                .and_then(|el| el.attr("content"))
+                                .map(ToOwned::to_owned)
+                        };
+
+                        posts::ActiveModel {
+                            id: ActiveValue::Unchanged(post_id),
+                            thumbnail: ActiveValue::Set(image),
+                            ..Default::default()
+                        }
+                        .update(&db)
+                        .await
+                        .unwrap();
+
+                        if req.notify {
+                            for subscription in PushSubscriptions::find().all(&db).await.unwrap() {
+                                match push_client
+                                    .send_message(
+                                        &subscription,
+                                        &json!({
+                                            "id": post.id.to_string(),
+                                            "title": post.title,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    Ok(is_valid) => {
+                                        if !is_valid {
+                                            PushSubscriptions::delete_by_id(subscription.id)
+                                                .exec(&db)
+                                                .await
+                                                .unwrap();
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            subscription.id,
+                                            subscription.endpoint,
+                                            "Failed to send push message: {e}",
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
