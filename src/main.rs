@@ -74,13 +74,15 @@ async fn main() -> eyre::Result<()> {
     tokio::spawn({
         let sync_sender = sync_sender.clone();
         async move {
-            sync_sender
-                .send(SyncRequest {
-                    scope: SyncScope::All,
-                    notify: true,
-                })
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+            loop {
+                sync_sender
+                    .send(SyncRequest {
+                        scope: SyncScope::All,
+                        notify: true,
+                    })
+                    .unwrap();
+                tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+            }
         }
     });
 
