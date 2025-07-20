@@ -127,7 +127,7 @@ async fn main() -> eyre::Result<()> {
         .nest("/api", api)
         .fallback_service(ServeDir::new("ui/dist").fallback(ServeFile::new("ui/dist/index.html")));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
 
     tracing::info!("server listening at http://{}", listener.local_addr()?);
 
@@ -392,13 +392,32 @@ async fn run_sync_worker(
     db: DatabaseConnection,
     push_client: PushClient,
 ) {
+    let worker = SyncWorker {
+        http_client,
+        db,
+        push_client,
+    };
+
     while let Some(req) = receiver.recv().await {
+        if let Err(e) = worker.process_request(req).await {
+            tracing::error!("{e:?}");
+        }
+    }
+}
+
+struct SyncWorker {
+    http_client: Client,
+    db: DatabaseConnection,
+    push_client: PushClient,
+}
+
+impl SyncWorker {
+    async fn process_request(&self, req: SyncRequest) -> eyre::Result<()> {
         let feeds = match req.scope {
-            SyncScope::All => Feeds::find().all(&db).await.unwrap(),
+            SyncScope::All => Feeds::find().all(&self.db).await?,
             SyncScope::Feed(id) => Feeds::find_by_id(id)
-                .one(&db)
-                .await
-                .unwrap()
+                .one(&self.db)
+                .await?
                 .into_iter()
                 .collect_vec(),
         };
@@ -406,7 +425,7 @@ async fn run_sync_worker(
         for feed_model in feeds {
             tracing::info!("syncing posts from {}", feed_model.url);
 
-            let feed = fetch_feed(&http_client, &feed_model.url).await.unwrap();
+            let feed = fetch_feed(&self.http_client, &feed_model.url).await?;
 
             match feed {
                 Feed::Atom(feed) => {
@@ -450,7 +469,7 @@ async fn run_sync_worker(
 
                         tracing::debug!(?post.title, ?post.url, "inserting post");
 
-                        let post = match post.insert(&db).await {
+                        let post = match post.insert(&self.db).await {
                             Ok(post) => post,
                             Err(e) => {
                                 if let Some(SqlErr::UniqueConstraintViolation(_)) = e.sql_err() {
@@ -462,14 +481,13 @@ async fn run_sync_worker(
                             }
                         };
 
-                        let content = (|| fetch_page_content(&http_client, &post.url))
+                        let content = (|| fetch_page_content(&self.http_client, &post.url))
                             .retry(ExponentialBuilder::default())
                             .sleep(tokio::time::sleep)
                             .notify(|err, duration| {
                                 tracing::warn!("retrying {err:?} after {duration:?}");
                             })
-                            .await
-                            .unwrap();
+                            .await?;
 
                         let image = {
                             Html::parse_document(&content)
@@ -484,13 +502,13 @@ async fn run_sync_worker(
                             thumbnail: ActiveValue::Set(image),
                             ..Default::default()
                         }
-                        .update(&db)
-                        .await
-                        .unwrap();
+                        .update(&self.db)
+                        .await?;
 
                         if req.notify {
-                            for subscription in PushSubscriptions::find().all(&db).await.unwrap() {
-                                match push_client
+                            for subscription in PushSubscriptions::find().all(&self.db).await? {
+                                match self
+                                    .push_client
                                     .send_message(
                                         &subscription,
                                         &json!({
@@ -503,9 +521,8 @@ async fn run_sync_worker(
                                     Ok(is_valid) => {
                                         if !is_valid {
                                             PushSubscriptions::delete_by_id(subscription.id)
-                                                .exec(&db)
-                                                .await
-                                                .unwrap();
+                                                .exec(&self.db)
+                                                .await?;
                                         }
                                     }
                                     Err(e) => {
@@ -556,7 +573,7 @@ async fn run_sync_worker(
 
                         tracing::debug!(?post.title, ?post.url, "inserting post");
 
-                        let post = match post.insert(&db).await {
+                        let post = match post.insert(&self.db).await {
                             Ok(post) => post,
                             Err(e) => {
                                 if let Some(SqlErr::UniqueConstraintViolation(_)) = e.sql_err() {
@@ -568,14 +585,13 @@ async fn run_sync_worker(
                             }
                         };
 
-                        let content = (|| fetch_page_content(&http_client, &post.url))
+                        let content = (|| fetch_page_content(&self.http_client, &post.url))
                             .retry(ExponentialBuilder::default())
                             .sleep(tokio::time::sleep)
                             .notify(|err, duration| {
                                 tracing::warn!("retrying {err:?} after {duration:?}");
                             })
-                            .await
-                            .unwrap();
+                            .await?;
 
                         let image = {
                             Html::parse_document(&content)
@@ -590,13 +606,13 @@ async fn run_sync_worker(
                             thumbnail: ActiveValue::Set(image),
                             ..Default::default()
                         }
-                        .update(&db)
-                        .await
-                        .unwrap();
+                        .update(&self.db)
+                        .await?;
 
                         if req.notify {
-                            for subscription in PushSubscriptions::find().all(&db).await.unwrap() {
-                                match push_client
+                            for subscription in PushSubscriptions::find().all(&self.db).await? {
+                                match self
+                                    .push_client
                                     .send_message(
                                         &subscription,
                                         &json!({
@@ -609,9 +625,8 @@ async fn run_sync_worker(
                                     Ok(is_valid) => {
                                         if !is_valid {
                                             PushSubscriptions::delete_by_id(subscription.id)
-                                                .exec(&db)
-                                                .await
-                                                .unwrap();
+                                                .exec(&self.db)
+                                                .await?;
                                         }
                                     }
                                     Err(e) => {
@@ -628,6 +643,8 @@ async fn run_sync_worker(
                 }
             }
         }
+
+        Ok(())
     }
 }
 
