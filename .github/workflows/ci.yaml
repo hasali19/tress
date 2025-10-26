@@ -26,7 +26,6 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-features -- -Dwarnings
 
-
   build_server:
     runs-on: ubuntu-latest
     strategy:
@@ -65,7 +64,7 @@ jobs:
       - name: Checkout git repo
         uses: actions/checkout@v4
 
-      - working-directory: ui
+      - working-directory: ui/web
         run: |
           npm install
           npx @biomejs/biome ci
@@ -77,7 +76,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build frontend
-        working-directory: ui
+        working-directory: ui/web
         run: |
           npm install
           npm run build
@@ -86,7 +85,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tress-ui
-          path: ui/dist
+          path: ui/web/dist
 
   deploy:
     runs-on: ubuntu-latest
