@@ -110,6 +110,7 @@ async fn main() -> eyre::Result<()> {
         .route("/config", get(get_config))
         .route("/push_subscriptions", post(create_push_subscription))
         .route("/feeds", get(get_feeds).post(add_feed))
+        .route("/feeds/{id}", get(get_feed))
         .route("/posts", get(get_posts))
         .route("/posts/{id}", get(get_post))
         .fallback(any((
@@ -259,6 +260,26 @@ async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, StatusCo
             })
             .collect_vec(),
     ))
+}
+
+async fn get_feed(
+    extract::Path(id): extract::Path<Uuid>,
+    State(app): State<App>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let feed = match Feeds::find_by_id(id).one(&app.db).await {
+        Ok(Some(feed)) => feed,
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(e) => {
+            tracing::error!("{e}");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    Ok(Json(FeedResponse {
+        id: feed.id.to_string(),
+        title: feed.title,
+        url: feed.url,
+    }))
 }
 
 #[derive(Deserialize)]
