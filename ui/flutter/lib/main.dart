@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -241,11 +242,13 @@ final class _PostTile extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget? image;
     if (post.thumbnail case String thumbnail) {
-      image = Image.network(
-        thumbnail,
-        width: 120,
-        height: 120,
-        fit: BoxFit.cover,
+      image = ConstrainedBox(
+        constraints: BoxConstraints(minHeight: 120),
+        child: CachedNetworkImage(
+          imageUrl: thumbnail,
+          width: 120,
+          fit: BoxFit.cover,
+        ),
       );
     }
 
@@ -259,38 +262,41 @@ final class _PostTile extends StatelessWidget {
 
     return Card(
       child: InkWell(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (image != null) image,
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: Text(feed.title, style: overlineStyle)),
-                        Text(
-                          _dateFormat.format(post.postTime),
-                          style: overlineStyle,
-                        ),
-                      ],
-                    ),
-                    Gap(4),
-                    Text(post.title, style: titleStyle),
-                    if (post.description case String description)
-                      Text(
-                        description,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (image != null) image,
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                              child: Text(feed.title, style: overlineStyle)),
+                          Text(
+                            _dateFormat.format(post.postTime),
+                            style: overlineStyle,
+                          ),
+                        ],
                       ),
-                  ],
+                      Gap(4),
+                      Text(post.title, style: titleStyle),
+                      if (post.description case String description)
+                        Text(
+                          description,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         onTap: () async {
           await launchUrlString(post.url);
