@@ -1,19 +1,96 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/find_locale.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-final dio = Dio();
+final _dio = Dio();
 final _dateFormat = DateFormat.yMMMd();
 
-void main() async {
+const _pushChannel = MethodChannel('tress.hasali.dev/push');
+
+void main(List<String> args) async {
+  WidgetsFlutterBinding.ensureInitialized();
+
   await findSystemLocale();
   await initializeDateFormatting();
 
+  final configRes = await _dio.get('https://tress.hasali.uk/api/config');
+  final config = configRes.data;
+
+  await _pushChannel
+      .invokeMethod('register', {'vapid_key': config['vapid']['public_key']});
+
   runApp(const MyApp());
+}
+
+@pragma('vm:entry-point')
+void pushEntrypoint() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  String? url;
+
+  _pushChannel.setMethodCallHandler((call) async {
+    switch (call.method) {
+      case 'onNewEndpoint':
+        final newUrl = call.arguments['url'];
+        if (newUrl != url) {
+          url = newUrl;
+          _registerPushEndpoint(
+            newUrl,
+            call.arguments['keys']['auth'],
+            call.arguments['keys']['pub'],
+          );
+        }
+        break;
+      case 'onMessage':
+        _handlePushMessage(call.arguments['content'], '');
+        break;
+    }
+  });
+}
+
+Future<void> _registerPushEndpoint(
+    String url, String? auth, String? pubKey) async {
+  await _dio.post(
+    'https://tress.hasali.uk/api/push_subscriptions',
+    data: {
+      'subscription': {
+        'endpoint': url,
+        'keys': {
+          'auth': auth,
+          'p256dh': pubKey,
+        },
+      },
+    },
+  );
+}
+
+Future<void> _handlePushMessage(
+    Uint8List messageContent, String instance) async {
+  const notificationsChannel = MethodChannel('tress.hasali.dev/notifications');
+
+  final messageData = jsonDecode(utf8.decode(messageContent));
+
+  final post = await _dio
+      .get('https://tress.hasali.uk/api/posts/${messageData['id']}')
+      .then((res) => res.data);
+
+  final feed = await _dio
+      .get('https://tress.hasali.uk/api/feeds/${post['feed_id']}')
+      .then((res) => res.data);
+
+  await notificationsChannel.invokeMethod('post', {
+    'title': messageData['title'],
+    'subtext': feed['title'],
+    'content': post['description'],
+  });
 }
 
 class MyApp extends StatelessWidget {
@@ -32,7 +109,7 @@ class MyApp extends StatelessWidget {
   ThemeData _buildTheme(Brightness brightness) {
     return ThemeData(
       brightness: brightness,
-      cardTheme: CardTheme(clipBehavior: Clip.antiAlias),
+      cardTheme: CardThemeData(clipBehavior: Clip.antiAlias),
     );
   }
 }
@@ -51,11 +128,8 @@ class Feed {
 
   Feed({required this.id, required this.title, required this.url});
 
-  factory Feed.fromJson(Map<String, dynamic> json) => Feed(
-        id: json['id'],
-        title: json['title'],
-        url: json['url'],
-      );
+  factory Feed.fromJson(Map<String, dynamic> json) =>
+      Feed(id: json['id'], title: json['title'], url: json['url']);
 }
 
 class Post {
@@ -94,15 +168,17 @@ class _PostsPageState extends State<PostsPage> {
   @override
   void initState() {
     super.initState();
+
     dataFuture = (() async {
       final [feedsResponse, postsResponse] = await Future.wait([
-        dio.get('https://tress.hasali.uk/api/feeds'),
-        dio.get('https://tress.hasali.uk/api/posts')
+        _dio.get('https://tress.hasali.uk/api/feeds'),
+        _dio.get('https://tress.hasali.uk/api/posts'),
       ]);
 
       Map<String, Feed> feeds = {};
-      for (final Feed feed
-          in feedsResponse.data.map((feed) => Feed.fromJson(feed))) {
+      for (final Feed feed in feedsResponse.data.map(
+        (feed) => Feed.fromJson(feed),
+      )) {
         feeds[feed.id] = feed;
       }
 
@@ -110,9 +186,11 @@ class _PostsPageState extends State<PostsPage> {
         feeds,
         (postsResponse.data as List<dynamic>)
             .map((post) => Post.fromJson(post))
-            .toList()
+            .toList(),
       );
     })();
+
+    Permission.notification.request();
   }
 
   @override
@@ -139,8 +217,10 @@ class _PostsPageState extends State<PostsPage> {
 
           if (snapshot.hasError) {
             return Center(
-              child:
-                  Text(snapshot.error.toString(), textAlign: TextAlign.center),
+              child: Text(
+                snapshot.error.toString(),
+                textAlign: TextAlign.center,
+              ),
             );
           }
 
@@ -155,10 +235,7 @@ final class _PostTile extends StatelessWidget {
   final Feed feed;
   final Post post;
 
-  const _PostTile({
-    required this.feed,
-    required this.post,
-  });
+  const _PostTile({required this.feed, required this.post});
 
   @override
   Widget build(BuildContext context) {
@@ -173,10 +250,12 @@ final class _PostTile extends StatelessWidget {
     }
 
     final theme = Theme.of(context);
-    final titleStyle =
-        theme.textTheme.bodyLarge!.copyWith(color: theme.colorScheme.onSurface);
-    final overlineStyle = theme.textTheme.bodySmall!
-        .copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final titleStyle = theme.textTheme.bodyLarge!.copyWith(
+      color: theme.colorScheme.onSurface,
+    );
+    final overlineStyle = theme.textTheme.bodySmall!.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
 
     return Card(
       child: InkWell(
@@ -192,11 +271,11 @@ final class _PostTile extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(
-                          child: Text(feed.title, style: overlineStyle),
+                        Expanded(child: Text(feed.title, style: overlineStyle)),
+                        Text(
+                          _dateFormat.format(post.postTime),
+                          style: overlineStyle,
                         ),
-                        Text(_dateFormat.format(post.postTime),
-                            style: overlineStyle),
                       ],
                     ),
                     Gap(4),
