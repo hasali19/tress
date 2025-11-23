@@ -1,4 +1,4 @@
-package com.example.tress
+package dev.hasali.tress
 
 import android.Manifest
 import android.app.PendingIntent

@@ -1,4 +1,4 @@
-package com.example.tress
+package dev.hasali.tress
 
 import android.util.Log
 import io.flutter.FlutterInjector
