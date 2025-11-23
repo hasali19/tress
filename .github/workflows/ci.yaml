@@ -58,43 +58,79 @@ jobs:
           name: tress-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/tress
 
-  check_ui:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout git repo
-        uses: actions/checkout@v4
-
-      - working-directory: ui/web
-        run: |
-          npm install
-          npx @biomejs/biome ci
-
   build_ui:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout git repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build frontend
-        working-directory: ui/web
-        run: |
-          npm install
-          npm run build
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: subosito/flutter-action@v2
         with:
-          name: tress-ui
-          path: ui/web/dist
+          channel: beta
 
-  deploy:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - working-directory: ui/flutter
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          echo $ANDROID_KEYSTORE | base64 -d > keystore.jks
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/key.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEYSTORE_KEY_ALIAS }}" >> android/key.properties
+          echo "storeFile=$(pwd)/keystore.jks" >> android/key.properties
+          flutter build apk --build-number=$GITHUB_RUN_NUMBER --dart-define=GIT_COMMIT_HASH=$(git rev-parse HEAD) --split-per-abi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tress-android
+          path: ui/flutter/build/app/outputs/flutter-apk/app-*-release.apk
+
+  release:
+    runs-on: ubuntu-latest
+    if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    needs:
+      - check_server
+      - build_server
+      - build_ui
+    concurrency:
+      group: release
+      cancel-in-progress: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - run: |
+          ls -R artifacts
+          mkdir release_artifacts
+
+          echo "Preparing android apks"
+          cp artifacts/tress-android/app-arm64-v8a-release.apk release_artifacts/tress-arm64-v8a-release-${{ github.run_number }}.apk
+          cp artifacts/tress-android/app-armeabi-v7a-release.apk release_artifacts/tress-armeabi-v7a-release-${{ github.run_number }}.apk
+          cp artifacts/tress-android/app-x86_64-release.apk release_artifacts/tress-x86_64-release-${{ github.run_number }}.apk
+
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "v${{ github.run_number }}"
+          prerelease: false
+          title: "v${{ github.run_number }}"
+          files: release_artifacts/*
+
+  deploy_server:
     runs-on: ubuntu-latest
     needs:
       - check_server
-      - check_ui
       - build_server
       - build_ui
-    if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     permissions:
       packages: write
     steps:
