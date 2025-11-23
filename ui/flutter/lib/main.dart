@@ -87,7 +87,10 @@ Future<void> _handlePushMessage(
       .get('https://tress.hasali.uk/api/feeds/${post['feed_id']}')
       .then((res) => res.data);
 
+  final String id = post['id'];
+
   await notificationsChannel.invokeMethod('post', {
+    'id': id.hashCode,
     'title': messageData['title'],
     'subtext': feed['title'],
     'content': post['description'],

@@ -20,38 +20,56 @@ class NotificationsPlugin : FlutterPlugin {
 
         notificationsChannel = MethodChannel(messenger, "tress.hasali.dev/notifications").apply {
             setMethodCallHandler { call, result ->
-                val title = call.argument<String>("title")
-                val subtext = call.argument<String>("subtext")
-                val content = call.argument<String>("content")
+                when (call.method) {
+                    "post" -> {
+                        val id = call.argument<Int>("id")
+                        val title = call.argument<String>("title")
+                        val subtext = call.argument<String>("subtext")
+                        val content = call.argument<String>("content")
 
-                // TODO: Open post in browser
-                val intent = Intent(context, MainActivity::class.java)
+                        if (id == null) {
+                            result.error("missing_arg", "`id` is required", null)
+                            return@setMethodCallHandler
+                        }
 
-                val pendingIntent =
-                    PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+                        // TODO: Open post in browser
+                        val intent = Intent(context, MainActivity::class.java)
 
-                val builder = NotificationCompat.Builder(context, "new_post")
-                    .setSmallIcon(R.mipmap.ic_launcher)
-                    .setContentTitle(title)
-                    .setSubText(subtext)
-                    .setContentText(content)
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                    .setContentIntent(pendingIntent)
-                    .setAutoCancel(true)
+                        val pendingIntent =
+                            PendingIntent.getActivity(
+                                context,
+                                0,
+                                intent,
+                                PendingIntent.FLAG_IMMUTABLE
+                            )
 
-                with(NotificationManagerCompat.from(context)) {
-                    if (ActivityCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.POST_NOTIFICATIONS
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        // TODO: Unique ids
-                        notify(1, builder.build())
+                        val builder = NotificationCompat.Builder(context, "new_post")
+                            .setSmallIcon(R.mipmap.ic_launcher)
+                            .setContentTitle(title)
+                            .setSubText(subtext)
+                            .setContentText(content)
+                            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+                            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                            .setContentIntent(pendingIntent)
+                            .setAutoCancel(true)
+
+                        with(NotificationManagerCompat.from(context)) {
+                            if (ActivityCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                notify(id, builder.build())
+                            }
+                        }
+
+                        result.success(null)
+                    }
+
+                    else -> {
+                        result.notImplemented()
                     }
                 }
-
-                result.success(null)
             }
         }
     }
