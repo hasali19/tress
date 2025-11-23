@@ -5,7 +5,7 @@
     <application
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:label="tress">
+        android:label="Tress">
 
         <activity
             android:name=".MainActivity"
