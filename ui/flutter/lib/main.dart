@@ -169,6 +169,8 @@ class Post {
 class _PostsPageState extends State<PostsPage> {
   late Future<(Map<String, Feed>, List<Post>)> dataFuture;
 
+  final _urlController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -202,6 +204,62 @@ class _PostsPageState extends State<PostsPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Posts'),
+        actions: [
+          IconButton(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) {
+                    return AlertDialog(
+                      title: Text('Add Feed'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextField(
+                            controller: _urlController,
+                            decoration: InputDecoration(
+                                hintText: 'https://example.com/index.xml'),
+                          ),
+                        ],
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            final url = _urlController.text;
+
+                            try {
+                              await _dio.post(
+                                'https://tress.hasali.uk/api/feeds',
+                                data: {
+                                  'url': url,
+                                },
+                              );
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text('Failed to add feed')));
+                              }
+                            }
+
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              _urlController.clear();
+                            }
+                          },
+                          child: Text('Ok'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+              icon: Icon(Icons.add))
+        ],
       ),
       body: FutureBuilder(
         future: dataFuture,

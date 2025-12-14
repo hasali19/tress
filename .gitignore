@@ -29,3 +29,6 @@ dist-ssr
 # App data
 *.db
 *.pem
+
+# FVM Version Cache
+.fvm/
