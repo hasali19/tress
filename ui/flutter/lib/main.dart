@@ -309,6 +309,16 @@ final class _PostTile extends StatelessWidget {
           imageUrl: thumbnail,
           width: 120,
           fit: BoxFit.cover,
+          errorWidget: (context, url, error) {
+            return Material(
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+              elevation: 1.0,
+              surfaceTintColor: Colors.transparent,
+              child: Center(
+                child: Icon(Icons.error_outline),
+              ),
+            );
+          },
         ),
       );
     }
