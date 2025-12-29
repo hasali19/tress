@@ -25,8 +25,9 @@ void main(List<String> args) async {
   final configRes = await _dio.get('https://tress.hasali.uk/api/config');
   final config = configRes.data;
 
-  await _pushChannel
-      .invokeMethod('register', {'vapid_key': config['vapid']['public_key']});
+  await _pushChannel.invokeMethod('register', {
+    'vapid_key': config['vapid']['public_key'],
+  });
 
   runApp(const MyApp());
 }
@@ -58,23 +59,25 @@ void pushEntrypoint() {
 }
 
 Future<void> _registerPushEndpoint(
-    String url, String? auth, String? pubKey) async {
+  String url,
+  String? auth,
+  String? pubKey,
+) async {
   await _dio.post(
     'https://tress.hasali.uk/api/push_subscriptions',
     data: {
       'subscription': {
         'endpoint': url,
-        'keys': {
-          'auth': auth,
-          'p256dh': pubKey,
-        },
+        'keys': {'auth': auth, 'p256dh': pubKey},
       },
     },
   );
 }
 
 Future<void> _handlePushMessage(
-    Uint8List messageContent, String instance) async {
+  Uint8List messageContent,
+  String instance,
+) async {
   const notificationsChannel = MethodChannel('tress.hasali.dev/notifications');
 
   final messageData = jsonDecode(utf8.decode(messageContent));
@@ -156,14 +159,14 @@ class Post {
   });
 
   factory Post.fromJson(Map<String, dynamic> json) => Post(
-        id: json['id'],
-        feedId: json['feed_id'],
-        title: json['title'],
-        postTime: DateTime.parse(json['post_time']),
-        thumbnail: json['thumbnail'],
-        description: json['description'],
-        url: json['url'],
-      );
+    id: json['id'],
+    feedId: json['feed_id'],
+    title: json['title'],
+    postTime: DateTime.parse(json['post_time']),
+    thumbnail: json['thumbnail'],
+    description: json['description'],
+    url: json['url'],
+  );
 }
 
 class _PostsPageState extends State<PostsPage> {
@@ -206,59 +209,61 @@ class _PostsPageState extends State<PostsPage> {
         title: Text('Posts'),
         actions: [
           IconButton(
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) {
-                    return AlertDialog(
-                      title: Text('Add Feed'),
-                      content: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextField(
-                            controller: _urlController,
-                            decoration: InputDecoration(
-                                hintText: 'https://example.com/index.xml'),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) {
+                  return AlertDialog(
+                    title: Text('Add Feed'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: _urlController,
+                          decoration: InputDecoration(
+                            hintText: 'https://example.com/index.xml',
                           ),
-                        ],
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: Text('Cancel'),
-                        ),
-                        TextButton(
-                          onPressed: () async {
-                            final url = _urlController.text;
-
-                            try {
-                              await _dio.post(
-                                'https://tress.hasali.uk/api/feeds',
-                                data: {
-                                  'url': url,
-                                },
-                              );
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                        content: Text('Failed to add feed')));
-                              }
-                            }
-
-                            if (context.mounted) {
-                              Navigator.pop(context);
-                              _urlController.clear();
-                            }
-                          },
-                          child: Text('Ok'),
                         ),
                       ],
-                    );
-                  },
-                );
-              },
-              icon: Icon(Icons.add))
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          final url = _urlController.text;
+
+                          try {
+                            await _dio.post(
+                              'https://tress.hasali.uk/api/feeds',
+                              data: {'url': url},
+                            );
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Failed to add feed'),
+                                ),
+                              );
+                            }
+                          }
+
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            _urlController.clear();
+                          }
+                        },
+                        child: Text('Ok'),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+            icon: Icon(Icons.add),
+          ),
         ],
       ),
       body: FutureBuilder(
@@ -314,9 +319,7 @@ final class _PostTile extends StatelessWidget {
               color: Theme.of(context).colorScheme.surfaceContainerHigh,
               elevation: 1.0,
               surfaceTintColor: Colors.transparent,
-              child: Center(
-                child: Icon(Icons.error_outline),
-              ),
+              child: Center(child: Icon(Icons.error_outline)),
             );
           },
         ),
@@ -347,7 +350,8 @@ final class _PostTile extends StatelessWidget {
                       Row(
                         children: [
                           Expanded(
-                              child: Text(feed.title, style: overlineStyle)),
+                            child: Text(feed.title, style: overlineStyle),
+                          ),
                           Text(
                             _dateFormat.format(post.postTime),
                             style: overlineStyle,
