@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.net.toUri
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodChannel
 
@@ -26,14 +27,18 @@ class NotificationsPlugin : FlutterPlugin {
                         val title = call.argument<String>("title")
                         val subtext = call.argument<String>("subtext")
                         val content = call.argument<String>("content")
+                        val url = call.argument<String>("url")
 
                         if (id == null) {
                             result.error("missing_arg", "`id` is required", null)
                             return@setMethodCallHandler
                         }
 
-                        // TODO: Open post in browser
-                        val intent = Intent(context, MainActivity::class.java)
+                        val intent = if (url == null) {
+                            Intent(context, MainActivity::class.java)
+                        } else {
+                            Intent(Intent.ACTION_VIEW, url.toUri())
+                        }
 
                         val pendingIntent =
                             PendingIntent.getActivity(

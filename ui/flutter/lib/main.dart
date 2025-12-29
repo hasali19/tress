@@ -97,6 +97,7 @@ Future<void> _handlePushMessage(
     'title': messageData['title'],
     'subtext': feed['title'],
     'content': post['description'],
+    'url': post['url'],
   });
 }
 
