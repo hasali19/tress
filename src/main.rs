@@ -28,6 +28,7 @@ use thiserror::Error;
 use tokio::signal;
 use tokio::sync::mpsc;
 use tower_http::services::{ServeDir, ServeFile};
+use tracing::{debug, error};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use web_push_native::jwt_simple::prelude::{ECDSAP256KeyPairLike, ES256KeyPair};
@@ -446,7 +447,13 @@ impl SyncWorker {
         for feed_model in feeds {
             tracing::info!("syncing posts from {}", feed_model.url);
 
-            let feed = fetch_feed(&self.http_client, &feed_model.url).await?;
+            let feed = match fetch_feed(&self.http_client, &feed_model.url).await {
+                Ok(feed) => feed,
+                Err(e) => {
+                    error!("{e:?}");
+                    continue;
+                }
+            };
 
             match feed {
                 Feed::Atom(feed) => {
@@ -488,13 +495,13 @@ impl SyncWorker {
                             thumbnail: ActiveValue::Set(None),
                         };
 
-                        tracing::debug!(?post.title, ?post.url, "inserting post");
+                        debug!(?post.title, ?post.url, "inserting post");
 
                         let post = match post.insert(&self.db).await {
                             Ok(post) => post,
                             Err(e) => {
                                 if let Some(SqlErr::UniqueConstraintViolation(_)) = e.sql_err() {
-                                    tracing::debug!("skipping post as it already exists");
+                                    debug!("skipping post as it already exists");
                                 } else {
                                     tracing::error!("{e}");
                                 }
@@ -592,13 +599,13 @@ impl SyncWorker {
                             thumbnail: ActiveValue::Set(None),
                         };
 
-                        tracing::debug!(?post.title, ?post.url, "inserting post");
+                        debug!(?post.title, ?post.url, "inserting post");
 
                         let post = match post.insert(&self.db).await {
                             Ok(post) => post,
                             Err(e) => {
                                 if let Some(SqlErr::UniqueConstraintViolation(_)) = e.sql_err() {
-                                    tracing::debug!("skipping post as it already exists");
+                                    debug!("skipping post as it already exists");
                                 } else {
                                     tracing::error!("{e}");
                                 }
@@ -702,8 +709,10 @@ async fn fetch_feed(client: &Client, url: &str) -> eyre::Result<Feed> {
         Err(atom_error) => match rss::Channel::read_from(&content[..]) {
             Ok(channel) => Ok(Feed::Rss(Box::new(channel))),
             Err(rss_error) => {
-                tracing::debug!("Failed to parse as Atom feed: {atom_error}");
-                tracing::debug!("Failed to parse as RSS feed: {rss_error}");
+                let content = String::from_utf8_lossy(&content);
+                debug!("{content}");
+                debug!("Failed to parse as Atom feed: {atom_error}");
+                debug!("Failed to parse as RSS feed: {rss_error}");
                 Err(eyre!(FeedParseError {
                     atom: atom_error,
                     rss: rss_error,
