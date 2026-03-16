@@ -14,48 +14,65 @@ Users are created explicitly via a new endpoint — no auto-provisioning.
 
 ## 1. Database Migrations
 
-Three new migrations, in order:
+Two new migration files, written in Rust using the `sea-orm-migration` library, following the same pattern as the existing migrations.
 
 ### Migration A: Create `users` table
 
-```sql
-CREATE TABLE users (
-    id   UUID PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-);
+Use `SchemaManager::create_table` to create:
+
+```
+users
+  id   UUID  PK
+  name TEXT  NOT NULL UNIQUE
 ```
 
-### Migration B: Seed a default user and add `user_id` to existing tables
+`down` drops the table.
 
-This migration handles the transition for existing data:
+### Migration B: Seed default user + add `user_id` to existing tables
 
-1. Insert a default user with a fixed, well-known UUID (e.g. `00000000-0000-0000-0000-000000000001`) and name `"default"`.
-2. Add `user_id UUID NOT NULL DEFAULT '<default-uuid>' REFERENCES users(id)` to `feeds`.
-3. Add `user_id UUID NOT NULL DEFAULT '<default-uuid>' REFERENCES users(id)` to `push_subscriptions`.
-4. All existing rows automatically receive the default user's ID via the column default.
-5. Drop the column defaults afterward (they shouldn't be implicit going forward).
-6. Drop the existing `UNIQUE` constraint on `feeds.url`; add `UNIQUE(url, user_id)` so different users can subscribe to the same feed independently.
+This migration handles the transition for existing data. All steps run inside a single `up` function:
 
-> SQLite doesn't support `ALTER COLUMN DROP DEFAULT` or `DROP CONSTRAINT` directly,
-> so step 5 and 6 require recreating the affected tables (standard SQLite migration pattern).
+1. **Generate a UUID** at runtime: `let default_user_id = Uuid::new_v4();`
+   - Add `uuid` to `migration/Cargo.toml` (it's already in the main workspace with the `v4` feature).
+
+2. **Insert the default user** using `manager.get_connection()` and a `Query::insert` statement:
+   ```rust
+   Query::insert()
+       .into_table("users")
+       .columns(["id", "name"])
+       .values_panic([default_user_id.to_string().into(), "default".into()])
+   ```
+
+3. **Recreate `feeds` table** with `user_id`:
+   - Because SQLite doesn't support `ADD COLUMN NOT NULL` without a default or `DROP/MODIFY CONSTRAINT`, the standard approach is to recreate the table:
+     - Create `feeds_new` with the same columns plus `user_id UUID NOT NULL` and a foreign key to `users(id)`, and with the unique constraint changed from `UNIQUE(url)` to `UNIQUE(url, user_id)`.
+     - `INSERT INTO feeds_new SELECT *, '<generated_uuid>' FROM feeds`
+     - Drop `feeds`, rename `feeds_new` → `feeds`.
+
+4. **Recreate `push_subscriptions` table** with `user_id` similarly:
+   - Create `push_subscriptions_new` with `user_id UUID NOT NULL` referencing `users(id)`.
+   - Copy existing rows with the generated UUID.
+   - Drop and rename.
+
+`down` is not strictly required (existing migrations don't always implement it), but if provided: drop the `user_id` column from both tables (via table recreation) and delete the default user.
 
 ---
 
 ## 2. Regenerate Entities
 
-After writing the migrations above, run:
+After writing both migrations, run:
 
 ```sh
 just gen-entities
 ```
 
-This regenerates `src/entities/users.rs`, `src/entities/feeds.rs`, and `src/entities/push_subscriptions.rs` with the correct SeaORM models and relations.
+This regenerates `src/entities/users.rs`, `src/entities/feeds.rs`, and `src/entities/push_subscriptions.rs`. Do not edit these files manually.
 
 ---
 
 ## 3. Auth Extractor (Axum)
 
-Add a custom Axum extractor `AuthUser` (in `src/main.rs` or a new `src/auth.rs`):
+Add a custom Axum extractor `AuthUser` in `src/main.rs` (or a new `src/auth.rs`):
 
 ```rust
 struct AuthUser {
@@ -66,16 +83,16 @@ struct AuthUser {
 Implementation:
 1. Read the `Authorization` header value.
 2. Parse it as a UUID — return `401` if missing or not a valid UUID.
-3. Query `SELECT id FROM users WHERE id = ?` — return `401` if not found.
+3. Query `SELECT id FROM users WHERE id = ?` — return `401` if no row found.
 4. Return `AuthUser { user_id }`.
 
-The extractor needs DB access, so it implements `FromRequestParts` using `axum::extract::FromRef` to pull `State<AppState>`.
+The extractor implements `FromRequestParts` using `axum::extract::FromRef` to access `State<AppState>` and the DB connection.
 
 ---
 
 ## 4. New Endpoint: `POST /api/users`
 
-**No auth required** (this is how you get a user in the first place).
+**No auth required.**
 
 Request body:
 ```json
@@ -84,12 +101,12 @@ Request body:
 
 Handler:
 1. Validate that `name` is non-empty.
-2. Generate a new UUID v4 for the user ID.
-3. Insert into `users`; return `409 Conflict` if the name is already taken.
+2. Generate a new `Uuid::new_v4()` for the user ID.
+3. Insert into `users`; return `409 Conflict` if the name is already taken (unique constraint violation).
 4. Return `201 Created` with:
-```json
-{ "id": "<uuid>", "name": "alice" }
-```
+   ```json
+   { "id": "<uuid>", "name": "alice" }
+   ```
 
 ---
 
@@ -110,7 +127,7 @@ Add `AuthUser` as an extractor argument to every handler that reads or writes us
 
 ## 6. Sync Worker Adjustments
 
-Feed rows are per-user (each user has their own feed row), but the actual fetched content (posts) is shared/deduplicated by URL. The sync logic stays the same, but push notifications must be scoped:
+Feed rows are per-user, but the actual fetched content (posts) is deduplicated by URL across all users. The sync logic stays the same, but push notifications must be scoped:
 
 - After inserting new posts for a feed, send push notifications only to subscriptions where `push_subscriptions.user_id = feeds.user_id`.
 
@@ -120,8 +137,9 @@ Feed rows are per-user (each user has their own feed row), but the actual fetche
 
 | File | Change |
 |---|---|
-| `migration/src/<timestamp>_create_users.rs` | New migration: create `users` table |
-| `migration/src/<timestamp>_add_user_id.rs` | New migration: seed default user, add `user_id` to `feeds` + `push_subscriptions`, fix unique constraint |
+| `migration/Cargo.toml` | Add `uuid = { version = "1", features = ["v4"] }` |
+| `migration/src/<ts>_create_users.rs` | New migration: create `users` table |
+| `migration/src/<ts>_add_user_id.rs` | New migration: seed default user, add `user_id` to `feeds` + `push_subscriptions` via table recreation |
 | `migration/src/lib.rs` | Register both new migrations |
 | `src/entities/` | Regenerated via `just gen-entities` — do not edit manually |
 | `src/main.rs` | Add `AuthUser` extractor; add `POST /api/users` handler; update all scoped handlers; update sync worker push dispatch |
@@ -130,7 +148,7 @@ Feed rows are per-user (each user has their own feed row), but the actual fetche
 
 ## 8. Out of Scope
 
-- No changes to the React UI or Flutter app (they would need to send the `Authorization` header, but that's a separate task)
+- No changes to the React UI or Flutter app
 - No password hashing, JWT, or OAuth
 - No admin endpoints
 - No user deletion or update endpoints
