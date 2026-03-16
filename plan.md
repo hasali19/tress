@@ -4,44 +4,58 @@
 
 Scope all data (feeds, posts, push subscriptions) to individual users.
 Auth is simple: every request must include `Authorization: <user_id>` (a UUID).
-If the header is missing or malformed, return `401 Unauthorized`.
-No user registration endpoint — users are created on first use (auto-provision).
+If the header is missing, malformed, or doesn't match any known user, return `401 Unauthorized`.
+Users are created explicitly via a new endpoint — no auto-provisioning.
+
+> **Entity generation rule:** Never edit `src/entities/` directly.
+> After writing migrations, run `just gen-entities` to regenerate them.
 
 ---
 
 ## 1. Database Migrations
 
-### Migration 1: Create `users` table
+Three new migrations, in order:
+
+### Migration A: Create `users` table
 
 ```sql
 CREATE TABLE users (
-    id UUID PRIMARY KEY
+    id   UUID PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
 );
 ```
 
-Simple table — no passwords, just a stable identifier.
+### Migration B: Seed a default user and add `user_id` to existing tables
 
-### Migration 2: Add `user_id` to `feeds` and `push_subscriptions`
+This migration handles the transition for existing data:
 
-- Add `user_id UUID NOT NULL REFERENCES users(id)` to `feeds`
-- Add `user_id UUID NOT NULL REFERENCES users(id)` to `push_subscriptions`
-- Drop the existing `UNIQUE` constraint on `feeds.url`; replace it with `UNIQUE(url, user_id)` so different users can subscribe to the same feed independently
+1. Insert a default user with a fixed, well-known UUID (e.g. `00000000-0000-0000-0000-000000000001`) and name `"default"`.
+2. Add `user_id UUID NOT NULL DEFAULT '<default-uuid>' REFERENCES users(id)` to `feeds`.
+3. Add `user_id UUID NOT NULL DEFAULT '<default-uuid>' REFERENCES users(id)` to `push_subscriptions`.
+4. All existing rows automatically receive the default user's ID via the column default.
+5. Drop the column defaults afterward (they shouldn't be implicit going forward).
+6. Drop the existing `UNIQUE` constraint on `feeds.url`; add `UNIQUE(url, user_id)` so different users can subscribe to the same feed independently.
 
-Posts are linked to feeds (via `feed_id`) so they are implicitly scoped to a user already. No change needed to the posts table.
+> SQLite doesn't support `ALTER COLUMN DROP DEFAULT` or `DROP CONSTRAINT` directly,
+> so step 5 and 6 require recreating the affected tables (standard SQLite migration pattern).
 
 ---
 
-## 2. New Entity: `users`
+## 2. Regenerate Entities
 
-Create `src/entities/users.rs` with a SeaORM model mirroring the table above.
+After writing the migrations above, run:
 
-Update `src/entities/mod.rs` to expose the new module and `prelude`.
+```sh
+just gen-entities
+```
+
+This regenerates `src/entities/users.rs`, `src/entities/feeds.rs`, and `src/entities/push_subscriptions.rs` with the correct SeaORM models and relations.
 
 ---
 
 ## 3. Auth Extractor (Axum)
 
-Add a custom Axum extractor `AuthUser` in `src/main.rs` (or a new `src/auth.rs`):
+Add a custom Axum extractor `AuthUser` (in `src/main.rs` or a new `src/auth.rs`):
 
 ```rust
 struct AuthUser {
@@ -49,57 +63,56 @@ struct AuthUser {
 }
 ```
 
-Implementation steps:
+Implementation:
 1. Read the `Authorization` header value.
-2. Parse it as a UUID.
-3. Return `401` if missing or invalid.
-4. Upsert a row in `users` (insert-or-ignore) so users are auto-provisioned on first request.
-5. Return `AuthUser { user_id }`.
+2. Parse it as a UUID — return `401` if missing or not a valid UUID.
+3. Query `SELECT id FROM users WHERE id = ?` — return `401` if not found.
+4. Return `AuthUser { user_id }`.
 
-The extractor needs access to the DB, so it will implement `FromRequestParts<Arc<App>>` (or use `State` injection via `axum::extract::FromRef`).
-
----
-
-## 4. Update API Handlers
-
-Pass `AuthUser` as an extractor argument to every handler that reads or writes user-scoped data.
-
-### GET `/api/feeds`
-- Filter: `WHERE user_id = ?`
-
-### POST `/api/feeds`
-- Insert feed with `user_id = auth.user_id`
-- Unique conflict is now `(url, user_id)` — OK to insert if another user already has the same feed URL (each user gets their own row)
-- Trigger sync only for this user's new feed
-
-### GET `/api/feeds/{id}`
-- Add `WHERE user_id = ?` to the lookup; return `404` if not found or belongs to another user
-
-### GET `/api/posts`
-- Join posts → feeds, filter `feeds.user_id = ?`
-
-### GET `/api/posts/{id}`
-- Join posts → feeds, filter `feeds.user_id = ?`; return `404` if inaccessible
-
-### POST `/api/push_subscriptions`
-- Insert with `user_id = auth.user_id`
+The extractor needs DB access, so it implements `FromRequestParts` using `axum::extract::FromRef` to pull `State<AppState>`.
 
 ---
 
-## 5. Sync Worker Adjustments
+## 4. New Endpoint: `POST /api/users`
 
-The sync worker currently processes all feeds globally. It must be updated to:
-- Query `SELECT DISTINCT user_id FROM feeds` (or just process all feeds, since feed data itself is not user-specific — only the association is)
-- Continue to process all feeds regardless of user; only the push notifications need to be scoped: send only to subscriptions where `user_id` matches the feed's `user_id`
+**No auth required** (this is how you get a user in the first place).
 
-Concretely:
-- After inserting new posts for a feed, look up push subscriptions where `user_id = feed.user_id` and notify only those.
+Request body:
+```json
+{ "name": "alice" }
+```
+
+Handler:
+1. Validate that `name` is non-empty.
+2. Generate a new UUID v4 for the user ID.
+3. Insert into `users`; return `409 Conflict` if the name is already taken.
+4. Return `201 Created` with:
+```json
+{ "id": "<uuid>", "name": "alice" }
+```
 
 ---
 
-## 6. `SyncRequest` Update
+## 5. Update Existing API Handlers
 
-The `SyncRequest` enum / message currently carries a feed ID. No structural change needed — the user scoping is handled by the DB query inside the sync handler.
+Add `AuthUser` as an extractor argument to every handler that reads or writes user-scoped data.
+
+| Endpoint | Change |
+|---|---|
+| `GET /api/feeds` | Filter `WHERE user_id = ?` |
+| `POST /api/feeds` | Insert with `user_id`; unique conflict is now `(url, user_id)` |
+| `GET /api/feeds/{id}` | Add `AND user_id = ?`; return `404` if not found or owned by another user |
+| `GET /api/posts` | Join posts → feeds, filter `feeds.user_id = ?` |
+| `GET /api/posts/{id}` | Join posts → feeds, filter `feeds.user_id = ?`; return `404` if inaccessible |
+| `POST /api/push_subscriptions` | Insert with `user_id` |
+
+---
+
+## 6. Sync Worker Adjustments
+
+Feed rows are per-user (each user has their own feed row), but the actual fetched content (posts) is shared/deduplicated by URL. The sync logic stays the same, but push notifications must be scoped:
+
+- After inserting new posts for a feed, send push notifications only to subscriptions where `push_subscriptions.user_id = feeds.user_id`.
 
 ---
 
@@ -107,16 +120,17 @@ The `SyncRequest` enum / message currently carries a feed ID. No structural chan
 
 | File | Change |
 |---|---|
-| `migration/src/` | Add two new migration files |
-| `src/entities/users.rs` | New SeaORM entity |
-| `src/entities/mod.rs` | Expose `users` module |
-| `src/main.rs` | Add `AuthUser` extractor; update all handlers; update sync worker push dispatch |
+| `migration/src/<timestamp>_create_users.rs` | New migration: create `users` table |
+| `migration/src/<timestamp>_add_user_id.rs` | New migration: seed default user, add `user_id` to `feeds` + `push_subscriptions`, fix unique constraint |
+| `migration/src/lib.rs` | Register both new migrations |
+| `src/entities/` | Regenerated via `just gen-entities` — do not edit manually |
+| `src/main.rs` | Add `AuthUser` extractor; add `POST /api/users` handler; update all scoped handlers; update sync worker push dispatch |
 
 ---
 
 ## 8. Out of Scope
 
-- No changes to the React UI or Flutter app (they would need to send the `Authorization` header, but that's a separate concern)
+- No changes to the React UI or Flutter app (they would need to send the `Authorization` header, but that's a separate task)
 - No password hashing, JWT, or OAuth
 - No admin endpoints
-- No user deletion
+- No user deletion or update endpoints
