@@ -12,30 +12,27 @@ Users are created explicitly via a new endpoint — no auto-provisioning.
 
 ---
 
-## 1. Database Migrations
+## 1. Database Migration
 
-Two new migration files, written in Rust using the `sea-orm-migration` library, following the same pattern as the existing migrations.
+One new migration file. Generate it by running inside the `migration/` directory:
 
-### Migration A: Create `users` table
-
-Use `SchemaManager::create_table` to create:
-
-```
-users
-  id   UUID  PK
-  name TEXT  NOT NULL UNIQUE
+```sh
+cargo run -- generate add_users
 ```
 
-`down` drops the table.
+This produces a timestamped file in `migration/src/`. The single `up` function does everything:
 
-### Migration B: Seed default user + add `user_id` to existing tables
+1. **Create `users` table** via `SchemaManager::create_table`:
+   ```
+   users
+     id   UUID  PK
+     name TEXT  NOT NULL UNIQUE
+   ```
 
-This migration handles the transition for existing data. All steps run inside a single `up` function:
+2. **Generate a UUID** at runtime: `let default_user_id = Uuid::new_v4();`
+   - Add `uuid = { version = "1", features = ["v4"] }` to `migration/Cargo.toml`.
 
-1. **Generate a UUID** at runtime: `let default_user_id = Uuid::new_v4();`
-   - Add `uuid` to `migration/Cargo.toml` (it's already in the main workspace with the `v4` feature).
-
-2. **Insert the default user** using `manager.get_connection()` and a `Query::insert` statement:
+3. **Insert the default user** using `manager.get_connection()` and a `Query::insert` statement:
    ```rust
    Query::insert()
        .into_table("users")
@@ -43,18 +40,18 @@ This migration handles the transition for existing data. All steps run inside a 
        .values_panic([default_user_id.to_string().into(), "default".into()])
    ```
 
-3. **Recreate `feeds` table** with `user_id`:
-   - Because SQLite doesn't support `ADD COLUMN NOT NULL` without a default or `DROP/MODIFY CONSTRAINT`, the standard approach is to recreate the table:
-     - Create `feeds_new` with the same columns plus `user_id UUID NOT NULL` and a foreign key to `users(id)`, and with the unique constraint changed from `UNIQUE(url)` to `UNIQUE(url, user_id)`.
-     - `INSERT INTO feeds_new SELECT *, '<generated_uuid>' FROM feeds`
+4. **Recreate `feeds` table** with `user_id`:
+   - SQLite doesn't support `ADD COLUMN NOT NULL` without a default or `DROP/MODIFY CONSTRAINT`, so recreate the table:
+     - Create `feeds_new` with the same columns plus `user_id UUID NOT NULL`, a foreign key to `users(id)`, and the unique constraint changed from `UNIQUE(url)` to `UNIQUE(url, user_id)`.
+     - Copy rows: `INSERT INTO feeds_new SELECT <all cols>, '<default_user_id>' FROM feeds`.
      - Drop `feeds`, rename `feeds_new` → `feeds`.
 
-4. **Recreate `push_subscriptions` table** with `user_id` similarly:
+5. **Recreate `push_subscriptions` table** with `user_id` the same way:
    - Create `push_subscriptions_new` with `user_id UUID NOT NULL` referencing `users(id)`.
    - Copy existing rows with the generated UUID.
    - Drop and rename.
 
-`down` is not strictly required (existing migrations don't always implement it), but if provided: drop the `user_id` column from both tables (via table recreation) and delete the default user.
+`down` reverses the steps: recreate `feeds` and `push_subscriptions` without `user_id`, then drop `users`.
 
 ---
 
@@ -138,9 +135,8 @@ Feed rows are per-user, but the actual fetched content (posts) is deduplicated b
 | File | Change |
 |---|---|
 | `migration/Cargo.toml` | Add `uuid = { version = "1", features = ["v4"] }` |
-| `migration/src/<ts>_create_users.rs` | New migration: create `users` table |
-| `migration/src/<ts>_add_user_id.rs` | New migration: seed default user, add `user_id` to `feeds` + `push_subscriptions` via table recreation |
-| `migration/src/lib.rs` | Register both new migrations |
+| `migration/src/<ts>_add_users.rs` | New migration (generated via `cargo run -- generate`): create `users` table, seed default user, add `user_id` to `feeds` + `push_subscriptions` via table recreation |
+| `migration/src/lib.rs` | Register the new migration |
 | `src/entities/` | Regenerated via `just gen-entities` — do not edit manually |
 | `src/main.rs` | Add `AuthUser` extractor; add `POST /api/users` handler; update all scoped handlers; update sync worker push dispatch |
 
