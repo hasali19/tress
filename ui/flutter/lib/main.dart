@@ -13,52 +13,62 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 const _baseUrl = 'https://tress.hasali.uk';
-const _prefKeyUserId = 'user_id';
+const _authHeader = 'Authorization';
 
 final _dio = Dio();
 final _dateFormat = DateFormat.yMMMd();
 
 const _pushChannel = MethodChannel('tress.hasali.dev/push');
 
-/// Returns the stored user UUID, or null if not logged in.
-Future<String?> _loadUserId() async {
-  final prefs = await SharedPreferences.getInstance();
-  return prefs.getString(_prefKeyUserId);
-}
+class PreferencesRepo {
+  static const _keyUserId = 'user_id';
 
-Future<void> _saveUserId(String userId) async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString(_prefKeyUserId, userId);
-}
-
-Future<void> _clearUserId() async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.remove(_prefKeyUserId);
-}
-
-void _setAuthHeader(String? userId) {
-  if (userId != null) {
-    _dio.options.headers['Authorization'] = userId;
-  } else {
-    _dio.options.headers.remove('Authorization');
+  Future<String?> getUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyUserId);
   }
+
+  Future<void> setUserId(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyUserId, userId);
+  }
+
+  Future<void> clearUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keyUserId);
+  }
+}
+
+final _prefs = PreferencesRepo();
+
+Future<void> _applyAuth(String userId) async {
+  await _prefs.setUserId(userId);
+  _dio.options.headers[_authHeader] = userId;
+}
+
+Future<void> _clearAuth() async {
+  await _prefs.clearUserId();
+  _dio.options.headers.remove(_authHeader);
 }
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await findSystemLocale();
-  await initializeDateFormatting();
-
-  final configRes = await _dio.get('$_baseUrl/api/config');
-  final config = configRes.data;
+  final [_, __, configRes] = await Future.wait([
+    findSystemLocale(),
+    initializeDateFormatting(),
+    _dio.get('$_baseUrl/api/config'),
+  ]);
+  final config = (configRes as Response).data;
 
   await _pushChannel.invokeMethod('register', {
     'vapid_key': config['vapid']['public_key'],
   });
 
-  final userId = await _loadUserId();
-  _setAuthHeader(userId);
+  final userId = await _prefs.getUserId();
+  if (userId != null) {
+    _dio.options.headers[_authHeader] = userId;
+  }
 
   runApp(MyApp(initiallyLoggedIn: userId != null));
 }
@@ -94,7 +104,7 @@ Future<void> _registerPushEndpoint(
   String? auth,
   String? pubKey,
 ) async {
-  final userId = await _loadUserId();
+  final userId = await _prefs.getUserId();
   if (userId == null) return;
 
   await _dio.post(
@@ -105,7 +115,7 @@ Future<void> _registerPushEndpoint(
         'keys': {'auth': auth, 'p256dh': pubKey},
       },
     },
-    options: Options(headers: {'Authorization': userId}),
+    options: Options(headers: {_authHeader: userId}),
   );
 }
 
@@ -192,8 +202,7 @@ class _LoginPageState extends State<LoginPage> {
         data: {'username': username},
       );
       final userId = res.data['id'] as String;
-      await _saveUserId(userId);
-      _setAuthHeader(userId);
+      await _applyAuth(userId);
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
@@ -330,6 +339,12 @@ class _PostsPageState extends State<PostsPage> {
     Permission.notification.request();
   }
 
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
   Future<(Map<String, Feed>, List<Post>)> _loadData() async {
     try {
       final [feedsResponse, postsResponse] = await Future.wait([
@@ -352,8 +367,7 @@ class _PostsPageState extends State<PostsPage> {
       );
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
-        await _clearUserId();
-        _setAuthHeader(null);
+        await _clearAuth();
         if (mounted) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (_) => const LoginPage()),
