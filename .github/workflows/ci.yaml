@@ -81,6 +81,8 @@ jobs:
           echo "keyPassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/key.properties
           echo "keyAlias=${{ secrets.ANDROID_KEYSTORE_KEY_ALIAS }}" >> android/key.properties
           echo "storeFile=$(pwd)/keystore.jks" >> android/key.properties
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
           flutter build apk --build-number=$GITHUB_RUN_NUMBER --dart-define=GIT_COMMIT_HASH=$(git rev-parse HEAD) --split-per-abi
 
       - uses: actions/upload-artifact@v4
