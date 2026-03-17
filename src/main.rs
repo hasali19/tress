@@ -626,9 +626,7 @@ impl SyncWorker {
 
                         if req.notify {
                             for subscription in PushSubscriptions::find()
-                                .filter(
-                                    push_subscriptions::Column::UserId.eq(feed_model.user_id),
-                                )
+                                .filter(push_subscriptions::Column::UserId.eq(feed_model.user_id))
                                 .all(&self.db)
                                 .await?
                             {
@@ -736,9 +734,7 @@ impl SyncWorker {
 
                         if req.notify {
                             for subscription in PushSubscriptions::find()
-                                .filter(
-                                    push_subscriptions::Column::UserId.eq(feed_model.user_id),
-                                )
+                                .filter(push_subscriptions::Column::UserId.eq(feed_model.user_id))
                                 .all(&self.db)
                                 .await?
                             {
