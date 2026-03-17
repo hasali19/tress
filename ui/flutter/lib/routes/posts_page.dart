@@ -95,7 +95,7 @@ class _PostsPageState extends State<PostsPage> {
 
       return (
         feeds,
-        (postsData as List<dynamic>).map((p) => Post.fromJson(p)).toList(),
+        postsData.map((p) => Post.fromJson(p)).toList(),
       );
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {

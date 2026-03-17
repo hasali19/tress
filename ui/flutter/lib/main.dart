@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
@@ -18,11 +18,9 @@ void main(List<String> args) async {
   final client = ApiClient();
   GetIt.instance.registerSingleton(client);
 
-  final [_, __, config] = await Future.wait([
-    findSystemLocale(),
-    initializeDateFormatting(),
-    client.getConfig(),
-  ]);
+  final configFuture = client.getConfig();
+  await Future.wait([findSystemLocale(), initializeDateFormatting()]);
+  final config = await configFuture;
 
   await _pushChannel.invokeMethod('register', {
     'vapid_key': config['vapid']['public_key'],
@@ -99,9 +97,9 @@ class _MyAppState extends State<MyApp> {
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
       routerConfig: _router.config(
-        initialRoutes: [
+        deepLinkBuilder: (_) => DeepLink([
           if (widget.initiallyLoggedIn) const PostsRoute() else const LoginRoute(),
-        ],
+        ]),
       ),
     );
   }
