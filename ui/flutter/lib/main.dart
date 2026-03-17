@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:auto_route/auto_route.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,8 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+
+part 'main.gr.dart';
 
 const _baseUrl = 'https://tress.hasali.uk';
 const _authHeader = 'Authorization';
@@ -49,6 +52,15 @@ Future<void> _applyAuth(String userId) async {
 Future<void> _clearAuth() async {
   await _prefs.clearUserId();
   _dio.options.headers.remove(_authHeader);
+}
+
+@AutoRouterConfig()
+class AppRouter extends _$AppRouter {
+  @override
+  List<AutoRoute> get routes => [
+    AutoRoute(page: LoginRoute.page),
+    AutoRoute(page: PostsRoute.page),
+  ];
 }
 
 void main(List<String> args) async {
@@ -146,18 +158,29 @@ Future<void> _handlePushMessage(
   });
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   final bool initiallyLoggedIn;
 
   const MyApp({super.key, required this.initiallyLoggedIn});
 
   @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final _router = AppRouter();
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'Tress',
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
-      home: initiallyLoggedIn ? const PostsPage() : const LoginPage(),
+      routerConfig: _router.config(
+        initialRoutes: [
+          if (widget.initiallyLoggedIn) const PostsRoute() else const LoginRoute(),
+        ],
+      ),
     );
   }
 
@@ -169,6 +192,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
+@RoutePage()
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -205,9 +229,7 @@ class _LoginPageState extends State<LoginPage> {
       await _applyAuth(userId);
 
       if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const PostsPage()),
-        );
+        context.router.replaceAll([const PostsRoute()]);
       }
     } on DioException catch (e) {
       setState(() {
@@ -279,6 +301,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
+@RoutePage()
 class PostsPage extends StatefulWidget {
   const PostsPage({super.key});
 
@@ -369,9 +392,7 @@ class _PostsPageState extends State<PostsPage> {
       if (e.response?.statusCode == 401) {
         await _clearAuth();
         if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const LoginPage()),
-          );
+          context.router.replaceAll([const LoginRoute()]);
         }
       }
       rethrow;
