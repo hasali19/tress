@@ -1,6 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 
-import 'main.dart';
+import 'routes/login_page.dart';
+import 'routes/posts_page.dart';
 
 part 'router.gr.dart';
 
