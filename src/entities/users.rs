@@ -3,35 +3,31 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "posts")]
+#[sea_orm(table_name = "users")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
-    pub feed_id: Uuid,
     #[sea_orm(unique)]
-    pub url: String,
-    pub title: String,
-    pub publish_time: String,
-    pub description: Option<String>,
-    pub content: Option<String>,
-    pub thumbnail: Option<String>,
+    pub name: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::feeds::Entity",
-        from = "Column::FeedId",
-        to = "super::feeds::Column::Id",
-        on_update = "NoAction",
-        on_delete = "NoAction"
-    )]
+    #[sea_orm(has_many = "super::feeds::Entity")]
     Feeds,
+    #[sea_orm(has_many = "super::push_subscriptions::Entity")]
+    PushSubscriptions,
 }
 
 impl Related<super::feeds::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Feeds.def()
+    }
+}
+
+impl Related<super::push_subscriptions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::PushSubscriptions.def()
     }
 }
 

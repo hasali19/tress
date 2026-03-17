@@ -4,7 +4,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{self, State};
+use axum::extract::{self, FromRequestParts, State};
+use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{any, get, post};
@@ -19,8 +20,8 @@ use reqwest::{Client, Request};
 use scraper::{Html, Selector};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ConnectOptions, Database, DatabaseConnection, EntityTrait,
-    QueryOrder, SqlErr,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
+    EntityTrait, QueryFilter, QueryOrder, SqlErr,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -36,7 +37,7 @@ use web_push_native::p256::PublicKey;
 use web_push_native::{Auth, WebPushBuilder};
 
 use crate::entities::prelude::*;
-use crate::entities::{feeds, posts, push_subscriptions};
+use crate::entities::{feeds, posts, push_subscriptions, users};
 
 #[derive(Clone)]
 struct App {
@@ -44,6 +45,31 @@ struct App {
     sync_sender: mpsc::UnboundedSender<SyncRequest>,
     http_client: Client,
     vapid_key: Arc<ES256KeyPair>,
+}
+
+struct AuthUser {
+    user_id: Uuid,
+}
+
+impl FromRequestParts<App> for AuthUser {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, state: &App) -> Result<Self, Self::Rejection> {
+        let user_id = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+        Users::find_by_id(user_id)
+            .one(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+        Ok(AuthUser { user_id })
+    }
 }
 
 #[tokio::main]
@@ -109,6 +135,7 @@ async fn main() -> eyre::Result<()> {
 
     let api = Router::new()
         .route("/config", get(get_config))
+        .route("/users", post(create_user))
         .route("/push_subscriptions", post(create_push_subscription))
         .route("/feeds", get(get_feeds).post(add_feed))
         .route("/feeds/{id}", get(get_feed))
@@ -185,6 +212,40 @@ async fn init_db() -> eyre::Result<DatabaseConnection> {
     Ok(db)
 }
 
+#[derive(Deserialize)]
+struct CreateUserReq {
+    name: String,
+}
+
+async fn create_user(
+    State(app): State<App>,
+    Json(req): Json<CreateUserReq>,
+) -> Result<impl IntoResponse, StatusCode> {
+    if req.name.is_empty() {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    let user = users::ActiveModel {
+        id: ActiveValue::Set(Uuid::new_v4()),
+        name: ActiveValue::Set(req.name),
+    };
+
+    match user.insert(&app.db).await {
+        Ok(user) => Ok((
+            StatusCode::CREATED,
+            Json(json!({"id": user.id.to_string(), "name": user.name})),
+        )),
+        Err(e) => {
+            if let Some(SqlErr::UniqueConstraintViolation(_)) = e.sql_err() {
+                Err(StatusCode::CONFLICT)
+            } else {
+                tracing::error!("{e}");
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct PushSubscriptionReq {
     subscription: PushSubscriptionData,
@@ -202,9 +263,14 @@ struct PushSubscriptionKeys {
     p256dh: String,
 }
 
-async fn create_push_subscription(State(app): State<App>, Json(body): Json<PushSubscriptionReq>) {
+async fn create_push_subscription(
+    AuthUser { user_id }: AuthUser,
+    State(app): State<App>,
+    Json(body): Json<PushSubscriptionReq>,
+) {
     let subscription = push_subscriptions::ActiveModel {
         id: ActiveValue::NotSet,
+        user_id: ActiveValue::Set(user_id),
         endpoint: ActiveValue::Set(body.subscription.endpoint),
         auth_key: ActiveValue::Set(body.subscription.keys.auth),
         p256dh_key: ActiveValue::Set(body.subscription.keys.p256dh),
@@ -242,8 +308,15 @@ struct FeedResponse {
     url: String,
 }
 
-async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, StatusCode> {
-    let feeds = match Feeds::find().all(&app.db).await {
+async fn get_feeds(
+    AuthUser { user_id }: AuthUser,
+    State(app): State<App>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let feeds = match Feeds::find()
+        .filter(feeds::Column::UserId.eq(user_id))
+        .all(&app.db)
+        .await
+    {
         Ok(posts) => posts,
         Err(e) => {
             tracing::error!("{e}");
@@ -264,10 +337,15 @@ async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, StatusCo
 }
 
 async fn get_feed(
+    AuthUser { user_id }: AuthUser,
     extract::Path(id): extract::Path<Uuid>,
     State(app): State<App>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let feed = match Feeds::find_by_id(id).one(&app.db).await {
+    let feed = match Feeds::find_by_id(id)
+        .filter(feeds::Column::UserId.eq(user_id))
+        .one(&app.db)
+        .await
+    {
         Ok(Some(feed)) => feed,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(e) => {
@@ -289,6 +367,7 @@ struct CreateFeedReq {
 }
 
 async fn add_feed(
+    AuthUser { user_id }: AuthUser,
     State(app): State<App>,
     Json(req): Json<CreateFeedReq>,
 ) -> Result<impl IntoResponse, StatusCode> {
@@ -307,6 +386,7 @@ async fn add_feed(
 
     let feed = feeds::ActiveModel {
         id: ActiveValue::Set(Uuid::new_v4()),
+        user_id: ActiveValue::Set(user_id),
         title: ActiveValue::Set(title),
         url: ActiveValue::Set(req.url),
         ..Default::default()
@@ -345,8 +425,13 @@ struct PostResponse {
     url: String,
 }
 
-async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, StatusCode> {
+async fn get_posts(
+    AuthUser { user_id }: AuthUser,
+    State(app): State<App>,
+) -> Result<impl IntoResponse, StatusCode> {
     let posts = match Posts::find()
+        .inner_join(feeds::Entity)
+        .filter(feeds::Column::UserId.eq(user_id))
         .order_by_desc(posts::Column::PublishTime)
         .all(&app.db)
         .await
@@ -375,10 +460,16 @@ async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, StatusCo
 }
 
 async fn get_post(
+    AuthUser { user_id }: AuthUser,
     State(app): State<App>,
     extract::Path(id): extract::Path<Uuid>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let post = match Posts::find_by_id(id).one(&app.db).await {
+    let post = match Posts::find_by_id(id)
+        .inner_join(feeds::Entity)
+        .filter(feeds::Column::UserId.eq(user_id))
+        .one(&app.db)
+        .await
+    {
         Ok(Some(post)) => post,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(e) => {
@@ -534,7 +625,13 @@ impl SyncWorker {
                         .await?;
 
                         if req.notify {
-                            for subscription in PushSubscriptions::find().all(&self.db).await? {
+                            for subscription in PushSubscriptions::find()
+                                .filter(
+                                    push_subscriptions::Column::UserId.eq(feed_model.user_id),
+                                )
+                                .all(&self.db)
+                                .await?
+                            {
                                 match self
                                     .push_client
                                     .send_message(
@@ -638,7 +735,13 @@ impl SyncWorker {
                         .await?;
 
                         if req.notify {
-                            for subscription in PushSubscriptions::find().all(&self.db).await? {
+                            for subscription in PushSubscriptions::find()
+                                .filter(
+                                    push_subscriptions::Column::UserId.eq(feed_model.user_id),
+                                )
+                                .all(&self.db)
+                                .await?
+                            {
                                 match self
                                     .push_client
                                     .send_message(
