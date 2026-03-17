@@ -9,12 +9,40 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/find_locale.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+
+const _baseUrl = 'https://tress.hasali.uk';
+const _prefKeyUserId = 'user_id';
 
 final _dio = Dio();
 final _dateFormat = DateFormat.yMMMd();
 
 const _pushChannel = MethodChannel('tress.hasali.dev/push');
+
+/// Returns the stored user UUID, or null if not logged in.
+Future<String?> _loadUserId() async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getString(_prefKeyUserId);
+}
+
+Future<void> _saveUserId(String userId) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(_prefKeyUserId, userId);
+}
+
+Future<void> _clearUserId() async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.remove(_prefKeyUserId);
+}
+
+void _setAuthHeader(String? userId) {
+  if (userId != null) {
+    _dio.options.headers['Authorization'] = userId;
+  } else {
+    _dio.options.headers.remove('Authorization');
+  }
+}
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,14 +50,17 @@ void main(List<String> args) async {
   await findSystemLocale();
   await initializeDateFormatting();
 
-  final configRes = await _dio.get('https://tress.hasali.uk/api/config');
+  final configRes = await _dio.get('$_baseUrl/api/config');
   final config = configRes.data;
 
   await _pushChannel.invokeMethod('register', {
     'vapid_key': config['vapid']['public_key'],
   });
 
-  runApp(const MyApp());
+  final userId = await _loadUserId();
+  _setAuthHeader(userId);
+
+  runApp(MyApp(initiallyLoggedIn: userId != null));
 }
 
 @pragma('vm:entry-point')
@@ -44,7 +75,7 @@ void pushEntrypoint() {
         final newUrl = call.arguments['url'];
         if (newUrl != url) {
           url = newUrl;
-          _registerPushEndpoint(
+          await _registerPushEndpoint(
             newUrl,
             call.arguments['keys']['auth'],
             call.arguments['keys']['pub'],
@@ -63,14 +94,18 @@ Future<void> _registerPushEndpoint(
   String? auth,
   String? pubKey,
 ) async {
+  final userId = await _loadUserId();
+  if (userId == null) return;
+
   await _dio.post(
-    'https://tress.hasali.uk/api/push_subscriptions',
+    '$_baseUrl/api/push_subscriptions',
     data: {
       'subscription': {
         'endpoint': url,
         'keys': {'auth': auth, 'p256dh': pubKey},
       },
     },
+    options: Options(headers: {'Authorization': userId}),
   );
 }
 
@@ -83,11 +118,11 @@ Future<void> _handlePushMessage(
   final messageData = jsonDecode(utf8.decode(messageContent));
 
   final post = await _dio
-      .get('https://tress.hasali.uk/api/posts/${messageData['id']}')
+      .get('$_baseUrl/api/posts/${messageData['id']}')
       .then((res) => res.data);
 
   final feed = await _dio
-      .get('https://tress.hasali.uk/api/feeds/${post['feed_id']}')
+      .get('$_baseUrl/api/feeds/${post['feed_id']}')
       .then((res) => res.data);
 
   final String id = post['id'];
@@ -102,7 +137,9 @@ Future<void> _handlePushMessage(
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final bool initiallyLoggedIn;
+
+  const MyApp({super.key, required this.initiallyLoggedIn});
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +147,7 @@ class MyApp extends StatelessWidget {
       title: 'Tress',
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
-      home: const PostsPage(),
+      home: initiallyLoggedIn ? const PostsPage() : const LoginPage(),
     );
   }
 
@@ -118,6 +155,117 @@ class MyApp extends StatelessWidget {
     return ThemeData(
       brightness: brightness,
       cardTheme: CardThemeData(clipBehavior: Clip.antiAlias),
+    );
+  }
+}
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final _usernameController = TextEditingController();
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    final username = _usernameController.text.trim();
+    if (username.isEmpty) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final res = await _dio.post(
+        '$_baseUrl/api/login',
+        data: {'username': username},
+      );
+      final userId = res.data['id'] as String;
+      await _saveUserId(userId);
+      _setAuthHeader(userId);
+
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const PostsPage()),
+        );
+      }
+    } on DioException catch (e) {
+      setState(() {
+        if (e.response?.statusCode == 401) {
+          _error = 'Unknown username';
+        } else {
+          _error = 'Login failed. Please try again.';
+        }
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Tress',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const Gap(32),
+                TextField(
+                  controller: _usernameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    border: OutlineInputBorder(),
+                  ),
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _login(),
+                ),
+                if (_error != null) ...[
+                  const Gap(8),
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                const Gap(16),
+                FilledButton(
+                  onPressed: _loading ? null : _login,
+                  child:
+                      _loading
+                          ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Text('Login'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -178,11 +326,15 @@ class _PostsPageState extends State<PostsPage> {
   @override
   void initState() {
     super.initState();
+    dataFuture = _loadData();
+    Permission.notification.request();
+  }
 
-    dataFuture = (() async {
+  Future<(Map<String, Feed>, List<Post>)> _loadData() async {
+    try {
       final [feedsResponse, postsResponse] = await Future.wait([
-        _dio.get('https://tress.hasali.uk/api/feeds'),
-        _dio.get('https://tress.hasali.uk/api/posts'),
+        _dio.get('$_baseUrl/api/feeds'),
+        _dio.get('$_baseUrl/api/posts'),
       ]);
 
       Map<String, Feed> feeds = {};
@@ -198,9 +350,18 @@ class _PostsPageState extends State<PostsPage> {
             .map((post) => Post.fromJson(post))
             .toList(),
       );
-    })();
-
-    Permission.notification.request();
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        await _clearUserId();
+        _setAuthHeader(null);
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+          );
+        }
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -238,7 +399,7 @@ class _PostsPageState extends State<PostsPage> {
 
                           try {
                             await _dio.post(
-                              'https://tress.hasali.uk/api/feeds',
+                              '$_baseUrl/api/feeds',
                               data: {'url': url},
                             );
                           } catch (e) {
