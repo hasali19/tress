@@ -10,10 +10,10 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/find_locale.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-part 'main.gr.dart';
+import 'preferences_repo.dart';
+import 'router.dart';
 
 const _baseUrl = 'https://tress.hasali.uk';
 const _authHeader = 'Authorization';
@@ -22,25 +22,6 @@ final _dio = Dio();
 final _dateFormat = DateFormat.yMMMd();
 
 const _pushChannel = MethodChannel('tress.hasali.dev/push');
-
-class PreferencesRepo {
-  static const _keyUserId = 'user_id';
-
-  Future<String?> getUserId() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyUserId);
-  }
-
-  Future<void> setUserId(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyUserId, userId);
-  }
-
-  Future<void> clearUserId() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyUserId);
-  }
-}
 
 final _prefs = PreferencesRepo();
 
@@ -52,15 +33,6 @@ Future<void> _applyAuth(String userId) async {
 Future<void> _clearAuth() async {
   await _prefs.clearUserId();
   _dio.options.headers.remove(_authHeader);
-}
-
-@AutoRouterConfig()
-class AppRouter extends _$AppRouter {
-  @override
-  List<AutoRoute> get routes => [
-    AutoRoute(page: LoginRoute.page),
-    AutoRoute(page: PostsRoute.page),
-  ];
 }
 
 void main(List<String> args) async {

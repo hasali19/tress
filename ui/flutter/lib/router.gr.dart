@@ -7,7 +7,7 @@
 // ignore_for_file: type=lint
 // coverage:ignore-file
 
-part of 'main.dart';
+part of 'router.dart';
 
 abstract class _$AppRouter extends RootStackRouter {
   @override
