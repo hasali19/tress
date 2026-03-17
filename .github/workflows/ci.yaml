@@ -69,7 +69,9 @@ jobs:
 
       - name: Check formatting
         working-directory: ui/flutter
-        run: dart format --output=none --set-exit-if-changed .
+        run: |
+          flutter pub get
+          dart format --output=none --set-exit-if-changed .
 
   build_ui:
     runs-on: ubuntu-latest
