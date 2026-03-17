@@ -1,12 +1,13 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get_it/get_it.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/find_locale.dart';
 
-import 'client.dart';
+import 'api_client.dart';
 import 'router.dart';
 
 const _pushChannel = MethodChannel('tress.hasali.dev/push');
@@ -14,21 +15,20 @@ const _pushChannel = MethodChannel('tress.hasali.dev/push');
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final [_, __, configRes] = await Future.wait([
+  final client = ApiClient();
+  GetIt.instance.registerSingleton(client);
+
+  final [_, __, config] = await Future.wait([
     findSystemLocale(),
     initializeDateFormatting(),
-    dio.get('$baseUrl/api/config'),
+    client.getConfig(),
   ]);
-  final config = configRes.data;
 
   await _pushChannel.invokeMethod('register', {
     'vapid_key': config['vapid']['public_key'],
   });
 
-  final userId = await prefs.getUserId();
-  if (userId != null) {
-    dio.options.headers['Authorization'] = userId;
-  }
+  final userId = await client.restoreAuth();
 
   runApp(MyApp(initiallyLoggedIn: userId != null));
 }
@@ -37,6 +37,7 @@ void main(List<String> args) async {
 void pushEntrypoint() {
   WidgetsFlutterBinding.ensureInitialized();
 
+  final client = ApiClient();
   String? url;
 
   _pushChannel.setMethodCallHandler((call) async {
@@ -45,56 +46,29 @@ void pushEntrypoint() {
         final newUrl = call.arguments['url'];
         if (newUrl != url) {
           url = newUrl;
-          await _registerPushEndpoint(
-            newUrl,
-            call.arguments['keys']['auth'],
-            call.arguments['keys']['pub'],
+          await client.registerPushSubscription(
+            url: newUrl,
+            auth: call.arguments['keys']['auth'],
+            pubKey: call.arguments['keys']['pub'],
           );
         }
         break;
       case 'onMessage':
-        _handlePushMessage(call.arguments['content'], '');
+        await _handlePushMessage(client, call.arguments['content']);
         break;
     }
   });
 }
 
-Future<void> _registerPushEndpoint(
-  String url,
-  String? auth,
-  String? pubKey,
-) async {
-  final userId = await prefs.getUserId();
-  if (userId == null) return;
-
-  await dio.post(
-    '$baseUrl/api/push_subscriptions',
-    data: {
-      'subscription': {
-        'endpoint': url,
-        'keys': {'auth': auth, 'p256dh': pubKey},
-      },
-    },
-    options: Options(headers: {'Authorization': userId}),
-  );
-}
-
 Future<void> _handlePushMessage(
+  ApiClient client,
   Uint8List messageContent,
-  String instance,
 ) async {
   const notificationsChannel = MethodChannel('tress.hasali.dev/notifications');
 
   final messageData = jsonDecode(utf8.decode(messageContent));
-
-  final post = await dio
-      .get('$baseUrl/api/posts/${messageData['id']}')
-      .then((res) => res.data);
-
-  final feed = await dio
-      .get('$baseUrl/api/feeds/${post['feed_id']}')
-      .then((res) => res.data);
-
+  final post = await client.getPost(messageData['id']);
+  final feed = await client.getFeed(post['feed_id']);
   final String id = post['id'];
 
   await notificationsChannel.invokeMethod('post', {

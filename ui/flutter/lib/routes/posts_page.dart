@@ -3,11 +3,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
+import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-import '../client.dart';
+import '../api_client.dart';
 import '../router.dart';
 
 final _dateFormat = DateFormat.yMMMd();
@@ -62,6 +63,7 @@ class PostsPage extends StatefulWidget {
 }
 
 class _PostsPageState extends State<PostsPage> {
+  final _client = GetIt.instance<ApiClient>();
   late Future<(Map<String, Feed>, List<Post>)> dataFuture;
 
   final _urlController = TextEditingController();
@@ -81,27 +83,23 @@ class _PostsPageState extends State<PostsPage> {
 
   Future<(Map<String, Feed>, List<Post>)> _loadData() async {
     try {
-      final [feedsResponse, postsResponse] = await Future.wait([
-        dio.get('$baseUrl/api/feeds'),
-        dio.get('$baseUrl/api/posts'),
+      final [feedsData, postsData] = await Future.wait([
+        _client.getFeeds(),
+        _client.getPosts(),
       ]);
 
       Map<String, Feed> feeds = {};
-      for (final Feed feed in feedsResponse.data.map(
-        (feed) => Feed.fromJson(feed),
-      )) {
+      for (final Feed feed in feedsData.map((f) => Feed.fromJson(f))) {
         feeds[feed.id] = feed;
       }
 
       return (
         feeds,
-        (postsResponse.data as List<dynamic>)
-            .map((post) => Post.fromJson(post))
-            .toList(),
+        (postsData as List<dynamic>).map((p) => Post.fromJson(p)).toList(),
       );
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
-        await clearAuth();
+        await _client.clearAuth();
         if (mounted) {
           context.router.replaceAll([const LoginRoute()]);
         }
@@ -144,10 +142,7 @@ class _PostsPageState extends State<PostsPage> {
                           final url = _urlController.text;
 
                           try {
-                            await dio.post(
-                              '$baseUrl/api/feeds',
-                              data: {'url': url},
-                            );
+                            await _client.addFeed(url);
                           } catch (e) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(

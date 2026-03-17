@@ -2,8 +2,9 @@ import 'package:auto_route/auto_route.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
+import 'package:get_it/get_it.dart';
 
-import '../client.dart';
+import '../api_client.dart';
 import '../router.dart';
 
 @RoutePage()
@@ -15,6 +16,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final _client = GetIt.instance<ApiClient>();
   final _usernameController = TextEditingController();
   bool _loading = false;
   String? _error;
@@ -35,12 +37,8 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      final res = await dio.post(
-        '$baseUrl/api/login',
-        data: {'username': username},
-      );
-      final userId = res.data['id'] as String;
-      await applyAuth(userId);
+      final userId = await _client.login(username);
+      await _client.applyAuth(userId);
 
       if (mounted) {
         context.router.replaceAll([const PostsRoute()]);
