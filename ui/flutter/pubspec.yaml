@@ -31,7 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
 
-  auto_route: ^9.0.0
+  auto_route: ^11.1.0
   cached_network_image: ^3.4.1
   dio: ^5.9.0
   gap: ^3.0.1
@@ -44,7 +44,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  auto_route_generator: ^9.0.0
+  auto_route_generator: ^10.5.0
   build_runner: ^2.4.0
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
