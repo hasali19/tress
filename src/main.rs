@@ -136,6 +136,7 @@ async fn main() -> eyre::Result<()> {
     let api = Router::new()
         .route("/config", get(get_config))
         .route("/users", post(create_user))
+        .route("/login", post(login))
         .route("/push_subscriptions", post(create_push_subscription))
         .route("/feeds", get(get_feeds).post(add_feed))
         .route("/feeds/{id}", get(get_feed))
@@ -210,6 +211,28 @@ async fn init_db() -> eyre::Result<DatabaseConnection> {
     let db = Database::connect(options).await?;
     Migrator::up(&db, None).await?;
     Ok(db)
+}
+
+#[derive(Deserialize)]
+struct LoginReq {
+    username: String,
+}
+
+async fn login(
+    State(app): State<App>,
+    Json(req): Json<LoginReq>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let user = Users::find()
+        .filter(users::Column::Name.eq(&req.username))
+        .one(&app.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("{e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    Ok(Json(json!({"id": user.id.to_string()})))
 }
 
 #[derive(Deserialize)]
