@@ -90,7 +90,8 @@ impl JwksClient {
     }
 
     async fn refresh_keys(&self) -> eyre::Result<()> {
-        let key_set: JwkSet = self.http_client
+        let key_set: JwkSet = self
+            .http_client
             .get(&self.jwks_uri)
             .send()
             .await?
@@ -133,19 +134,16 @@ impl JwksClient {
                         return Ok(claims);
                     }
                 }
-                Err(AuthError::InvalidToken("token validation failed".to_string()))
+                Err(AuthError::InvalidToken(
+                    "token validation failed".to_string(),
+                ))
             }
         }
     }
 
-    fn decode_with_jwk(
-        &self,
-        token: &str,
-        alg: Algorithm,
-        jwk: &Jwk,
-    ) -> Result<Claims, AuthError> {
-        let decoding_key = DecodingKey::from_jwk(jwk)
-            .map_err(|e| AuthError::InvalidToken(e.to_string()))?;
+    fn decode_with_jwk(&self, token: &str, alg: Algorithm, jwk: &Jwk) -> Result<Claims, AuthError> {
+        let decoding_key =
+            DecodingKey::from_jwk(jwk).map_err(|e| AuthError::InvalidToken(e.to_string()))?;
 
         let mut validation = Validation::new(alg);
         validation.set_issuer(&[&self.issuer]);
