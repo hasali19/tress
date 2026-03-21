@@ -1,214 +1,177 @@
-# Plan: OIDC/OAuth Authentication
+# Plan: OIDC/OAuth Authentication (Resource Server)
 
 ## Overview
 
-Add OIDC/OAuth authentication to Tress so that the server can be protected behind an identity provider like Authelia, Authentik, or any standards-compliant OIDC provider. When auth is configured, all API and UI routes are protected; unauthenticated requests are redirected to the provider's login page.
+Add Bearer token authentication to the Tress API so it can be protected behind an OIDC provider like Authelia. The **mobile app** handles the OAuth flow itself (Authorization Code + PKCE via system browser), obtains an access token from the provider, and sends it on every API request as a standard `Authorization: Bearer <token>` header.
 
-Since Tress is a single-user self-hosted app, we need only verify _that_ a user authenticated successfully — we do not need multi-tenancy or per-user data isolation.
+The server acts purely as an **OAuth 2.0 Resource Server**: it validates tokens locally using the provider's JWKS endpoint — no redirects, no sessions, no cookies.
+
+Auth is **opt-in**: if no OIDC config is provided the server runs as today with no auth.
 
 ---
 
-## Configuration
-
-Authentication is **opt-in**: if no OIDC config is provided the server runs as today (no auth). Configuration is provided via environment variables (consistent with the existing `DATABASE_URL` pattern):
+## Configuration (env vars)
 
 | Variable | Required | Description |
 |---|---|---|
-| `OIDC_ISSUER_URL` | Yes | Base URL of the OIDC provider, e.g. `https://auth.example.com` |
-| `OIDC_CLIENT_ID` | Yes | Client ID registered with the provider |
-| `OIDC_CLIENT_SECRET` | Yes | Client secret |
-| `OIDC_REDIRECT_URL` | No | Full callback URL (defaults to `http://localhost:3000/auth/callback`) |
-| `SESSION_SECRET` | Recommended | 64-byte hex secret for signing session cookies (auto-generated and logged as a warning if absent) |
+| `OIDC_ISSUER_URL` | Yes | Provider base URL, e.g. `https://auth.example.com`. Used for OIDC discovery (`/.well-known/openid-configuration`) to obtain the JWKS URI and issuer claim. |
+| `OIDC_AUDIENCE` | No | Expected `aud` claim in the token. If omitted, audience validation is skipped. Some providers (e.g. Authelia) set `aud` to the client ID. |
+
+No client secret is needed on the server — the mobile app holds the client credentials and performs the token exchange. The server only needs the public JWKS to verify signatures.
 
 ---
 
 ## New Dependencies (Cargo.toml)
 
-- **`openidconnect`** — Standards-compliant OIDC client; handles discovery, PKCE, token validation
-- **`tower-sessions`** + **`tower-sessions-sqlx-store`** (or `tower-sessions-moka-store`) — Cookie-based session middleware backed by SQLite or in-memory store
-- **`axum-extra`** (already may be present) — For typed cookies / cookie jar
-- **`rand`** (likely already present via transitive deps) — PKCE verifier / state generation
+- **`jsonwebtoken`** — JWT decoding and signature verification (RS256/ES256)
+- **`reqwest`** — already present; used to fetch the discovery document and JWKS
+- **`serde_json`** — already present; parse discovery/JWKS responses
+- **`tokio::sync::RwLock`** — cache the JWKS in memory with periodic refresh
 
 ---
 
 ## Backend Changes
 
-### 1. Configuration struct (`src/config.rs`)
-
-Create a `Config` struct that is populated from environment variables at startup:
+### 1. Configuration (`src/config.rs`) — new file
 
 ```rust
 pub struct Config {
     pub database_url: String,
     pub oidc: Option<OidcConfig>,
-    pub session_secret: [u8; 64],
 }
 
 pub struct OidcConfig {
-    pub issuer_url: IssuerUrl,
-    pub client_id: ClientId,
-    pub client_secret: ClientSecret,
-    pub redirect_url: RedirectUrl,
+    pub issuer_url: String,   // e.g. "https://auth.example.com"
+    pub audience: Option<String>,
 }
 ```
 
-### 2. App state (`src/main.rs`)
+Populated from env vars at startup; errors out clearly if `OIDC_ISSUER_URL` is set but malformed.
 
-Add to the shared `App` state:
-- `Option<Arc<CoreClient>>` — the configured OIDC client (None = auth disabled)
-- `SessionManagerLayer` — added to the router when auth is enabled
+### 2. JWKS client (`src/jwks.rs`) — new file
 
-### 3. Auth routes (`src/auth.rs`)
+Responsibilities:
+- At startup, fetch `{issuer_url}/.well-known/openid-configuration` to discover the `jwks_uri` and canonical `issuer` value
+- Fetch and parse the JWKS; cache the key set in an `Arc<RwLock<JwkSet>>`
+- Spawn a background task that refreshes the JWKS every 12 hours (handles key rotation)
+- Expose a `validate_token(token: &str) -> Result<Claims, AuthError>` function that:
+  1. Decodes the JWT header to find the `kid` (key ID)
+  2. Looks up the matching key in the cached JWKS
+  3. Verifies signature, `iss`, `exp`, and optionally `aud` using `jsonwebtoken`
+  4. Returns the validated claims or an error
 
-Three new Axum handlers:
-
-**`GET /auth/login`**
-1. Generate a PKCE challenge pair and a random CSRF `state` value
-2. Store `(state, pkce_verifier)` in the session
-3. Build the authorization URL using `openidconnect` discovery
-4. Redirect the browser to the provider
-
-**`GET /auth/callback?code=...&state=...`**
-1. Retrieve `(state, pkce_verifier)` from session; reject if missing or state mismatch (CSRF protection)
-2. Exchange the authorization code for tokens using PKCE verifier
-3. Validate the ID token (signature, nonce, audience, expiry) — `openidconnect` does this automatically
-4. Store `authenticated = true` (and optionally the subject `sub` claim) in the session
-5. Redirect to `/` (or a pre-auth URL stored in the session)
-
-**`GET /auth/logout`**
-1. Destroy the session
-2. Redirect to `/` (which will redirect to login since session is gone)
-
-**`GET /auth/status`** (new API endpoint, unauthenticated)
-Returns:
-```json
-{ "auth_enabled": true }   // or false
-```
-The frontend uses this to decide whether to show a login flow.
-
-### 4. Auth middleware (`src/middleware/auth.rs`)
-
-An Axum middleware layer that:
-1. If `oidc_client` is `None` → pass through (auth disabled)
-2. Check the session for `authenticated = true`
-3. If present → pass through
-4. If the request is for `/auth/*` or is a static asset → pass through
-5. Otherwise:
-   - For `Accept: application/json` requests → return `401 Unauthorized`
-   - For browser requests → redirect to `/auth/login` (storing the original URL in the session for post-login redirect)
-
-Apply this middleware to the top-level router so it covers both API routes and the SPA fallback.
-
-### 5. Router changes (`src/main.rs`)
-
-```
-Router
-  ├── /auth/login      → auth::login
-  ├── /auth/callback   → auth::callback
-  ├── /auth/logout     → auth::logout
-  ├── /api/config      → existing (expose auth_enabled flag here instead of separate endpoint)
-  ├── /api/**          → existing handlers (now protected by middleware)
-  └── /**              → static files + SPA fallback (protected by middleware)
+```rust
+pub struct Claims {
+    pub sub: String,
+    pub exp: usize,
+    // … other standard claims
+}
 ```
 
-The session layer and auth middleware are added conditionally when OIDC config is present.
+### 3. Auth middleware (`src/middleware/auth.rs`) — new file
+
+An Axum middleware that:
+1. If `oidc_config` is `None` → pass through (auth disabled)
+2. Extract the `Authorization` header; if missing → `401` with `WWW-Authenticate: Bearer`
+3. Strip `Bearer ` prefix; if malformed → `401`
+4. Call `jwks_client.validate_token(token)`:
+   - Ok → pass through (optionally inject `sub` into request extensions for logging)
+   - Err → `401` with `WWW-Authenticate: Bearer error="invalid_token"`
+
+Applied to all `/api/*` routes. Static file serving and the SPA do not need protection (mobile-only API).
+
+### 4. App state & router (`src/main.rs`) — modified
+
+Add to `App`:
+```rust
+pub jwks_client: Option<Arc<JwksClient>>,
+```
+
+Startup sequence when `OIDC_ISSUER_URL` is set:
+1. Fetch discovery document → extract `issuer` and `jwks_uri`
+2. Fetch initial JWKS
+3. Spawn background refresh task
+4. Add `JwksClient` to app state
+5. Apply auth middleware to `/api` routes
+
+### 5. `/api/config` response — modified
+
+Add `auth_enabled: bool` so the mobile app knows whether to initiate an auth flow before making API calls.
 
 ---
 
-## Database / Session Storage
+## Mobile App Responsibilities (out of scope for server)
 
-Use **in-memory session store** (`MemoryStore` from `tower-sessions`) to keep things simple — sessions are lost on restart, which just means users need to log in again. This avoids a new database migration.
-
-If persistence is needed in the future, a SQLite-backed store can be swapped in without API changes.
-
----
-
-## Frontend Changes
-
-### 1. Auth status check (`src/api.ts` or similar)
-
-On app startup, call `GET /api/config` (already exists) — extend it to include `auth_enabled: boolean`. No new endpoint needed.
-
-### 2. 401 handling
-
-In the existing `fetch` wrappers, intercept `401` responses and redirect `window.location` to `/auth/login`. This handles token expiry or session loss after initial load.
-
-### 3. Logout button
-
-Add a logout button to the UI (e.g., in the header/settings area) that calls `GET /auth/logout`.
+For completeness, the mobile client (Flutter) needs to:
+1. Read `auth_enabled` from `GET /api/config` on first launch
+2. If true, initiate Authorization Code + PKCE flow using the system browser (`flutter_appauth` or similar)
+3. Store the access token and refresh token securely (flutter_secure_storage)
+4. Attach `Authorization: Bearer <access_token>` to every API request
+5. On `401` response, attempt token refresh; if refresh fails, re-initiate login
 
 ---
 
-## File Structure (new/modified files)
+## Token Validation Flow
 
 ```
-src/
-  config.rs          ← NEW: parse env vars into Config struct
-  auth.rs            ← NEW: login / callback / logout handlers
-  middleware/
-    auth.rs          ← NEW: session-checking middleware
-  main.rs            ← MODIFIED: wire up config, auth routes, session layer, middleware
-  api/
-    config.rs        ← MODIFIED: include auth_enabled in response
-
-ui/web/src/
-  api.ts (or lib/api.ts)   ← MODIFIED: handle 401 → redirect to /auth/login
-  App.tsx                  ← MODIFIED: add logout button
-
-Cargo.toml           ← MODIFIED: add openidconnect, tower-sessions, rand
-```
-
----
-
-## Sequence Diagram
-
-```
-Browser                 Tress                    Authelia
-  |                       |                          |
-  |-- GET /               |                          |
-  |                       | (no session)             |
-  |<-- 302 /auth/login    |                          |
-  |                       |                          |
-  |-- GET /auth/login     |                          |
-  |                       | generate state+PKCE      |
-  |                       | store in session         |
-  |<-- 302 https://auth.example.com/oauth2/authorize?... |
-  |                       |                          |
-  |------- authorize request ----------------------->|
-  |<------ 302 /auth/callback?code=...&state=... ----|
-  |                       |                          |
-  |-- GET /auth/callback  |                          |
-  |                       | validate state           |
-  |                       |-- token exchange ------->|
-  |                       |<-- tokens ---------------|
-  |                       | validate ID token        |
-  |                       | mark session authenticated|
-  |<-- 302 /             |                          |
-  |                       |                          |
-  |-- GET /api/feeds      |                          |
-  |                       | session OK → serve       |
-  |<-- 200 [feeds]        |                          |
+Mobile App                   Tress API                  Authelia
+    |                            |                          |
+    |-- POST /api/feeds          |                          |
+    |   Authorization: Bearer <token>                       |
+    |                            |                          |
+    |                            | decode JWT header → kid  |
+    |                            | lookup kid in JWKS cache |
+    |                            | verify signature + exp   |
+    |                            |                          |
+    |<-- 200 OK                  |                          |
+    |                            |                          |
+    |-- POST /api/feeds (expired token)                     |
+    |                            |                          |
+    |                            | exp check fails          |
+    |<-- 401 Unauthorized        |                          |
+    |   WWW-Authenticate: Bearer error="invalid_token"      |
+    |                            |                          |
+    |-- token refresh ---------->|  (direct to Authelia)   |
+    |<-- new access token -------|--------------------------|
+    |-- retry with new token --> |                          |
+    |<-- 200 OK                  |                          |
 ```
 
 ---
 
 ## Security Considerations
 
-- **PKCE** (S256 method) is used for all flows, mitigating authorization code interception
-- **State parameter** provides CSRF protection on the callback
-- **Session cookies** are `HttpOnly`, `SameSite=Lax`, `Secure` (configurable; default Secure=false for localhost dev)
-- **ID token validation**: signature (from JWKS), issuer, audience, expiry all verified by the `openidconnect` crate
-- Auth is completely **opt-in** — no behaviour change when env vars are absent
+- **No client secret on the server** — the server never sees client credentials; it only verifies signatures with public JWKS keys
+- **JWKS caching** with periodic refresh handles key rotation without downtime
+- **`kid` lookup** before verification avoids trying all keys (important when the provider has multiple keys)
+- **Strict claim validation**: `iss` must exactly match the discovered issuer; `exp` is always checked; `aud` checked if configured
+- **Unknown `kid`** triggers an immediate JWKS refresh before failing, to handle newly rotated keys
+- Auth is fully **opt-in** — no behaviour change when `OIDC_ISSUER_URL` is absent
+
+---
+
+## File Summary
+
+```
+src/
+  config.rs           ← NEW: env var parsing
+  jwks.rs             ← NEW: JWKS fetch, cache, token validation
+  middleware/
+    auth.rs           ← NEW: Bearer token extraction + validation middleware
+  main.rs             ← MODIFIED: wire config, JwksClient, middleware
+  api/
+    config.rs         ← MODIFIED: add auth_enabled to response
+
+Cargo.toml            ← MODIFIED: add jsonwebtoken
+```
 
 ---
 
 ## Implementation Order
 
-1. **`Cargo.toml`** — add dependencies
-2. **`src/config.rs`** — environment variable parsing
-3. **`src/auth.rs`** — OIDC handlers (login, callback, logout)
-4. **`src/middleware/auth.rs`** — session auth check middleware
-5. **`src/main.rs`** — wire everything together; extend `/api/config` response
-6. **Frontend** — 401 handling + logout button
-
-Each step is independently testable: config parsing and routing can be unit-tested; the OIDC flow can be integration-tested against a local provider like Authelia or Dex.
+1. **`Cargo.toml`** — add `jsonwebtoken`
+2. **`src/config.rs`** — env var parsing
+3. **`src/jwks.rs`** — discovery, JWKS fetch/cache, `validate_token`
+4. **`src/middleware/auth.rs`** — Bearer extraction + middleware
+5. **`src/main.rs`** — wire it all together
+6. **`/api/config`** — add `auth_enabled` field
