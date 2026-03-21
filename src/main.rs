@@ -1,4 +1,7 @@
+mod auth_middleware;
+mod config;
 mod entities;
+mod jwks;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -35,8 +38,10 @@ use web_push_native::jwt_simple::prelude::{ECDSAP256KeyPairLike, ES256KeyPair};
 use web_push_native::p256::PublicKey;
 use web_push_native::{Auth, WebPushBuilder};
 
+use crate::config::OidcConfig;
 use crate::entities::prelude::*;
 use crate::entities::{feeds, posts, push_subscriptions};
+use crate::jwks::JwksClient;
 
 #[derive(Clone)]
 struct App {
@@ -95,6 +100,14 @@ async fn main() -> eyre::Result<()> {
         })
         .build()?;
 
+    let jwks_client = if let Some(oidc) = OidcConfig::from_env() {
+        tracing::info!("OIDC auth enabled (issuer: {})", oidc.issuer_url);
+        Some(JwksClient::new(http_client.clone(), &oidc.issuer_url, oidc.audience).await?)
+    } else {
+        tracing::info!("OIDC auth disabled — set OIDC_ISSUER_URL to enable");
+        None
+    };
+
     let push_client = PushClient {
         http_client: http_client.clone(),
         vapid_key: vapid_key.clone(),
@@ -118,6 +131,10 @@ async fn main() -> eyre::Result<()> {
             StatusCode::NOT_FOUND,
             Json(json!({"message": "not found"})),
         )))
+        .layer(axum::middleware::from_fn_with_state(
+            jwks_client,
+            auth_middleware::auth_middleware,
+        ))
         .with_state(App {
             db: db.clone(),
             sync_sender,
