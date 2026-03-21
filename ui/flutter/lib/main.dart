@@ -178,29 +178,33 @@ class _PostsPageState extends State<PostsPage> {
   @override
   void initState() {
     super.initState();
-
-    dataFuture = (() async {
-      final [feedsResponse, postsResponse] = await Future.wait([
-        _dio.get('https://tress.hasali.uk/api/feeds'),
-        _dio.get('https://tress.hasali.uk/api/posts'),
-      ]);
-
-      Map<String, Feed> feeds = {};
-      for (final Feed feed in feedsResponse.data.map(
-        (feed) => Feed.fromJson(feed),
-      )) {
-        feeds[feed.id] = feed;
-      }
-
-      return (
-        feeds,
-        (postsResponse.data as List<dynamic>)
-            .map((post) => Post.fromJson(post))
-            .toList(),
-      );
-    })();
-
+    _loadData();
     Permission.notification.request();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      dataFuture = (() async {
+        final [feedsResponse, postsResponse] = await Future.wait([
+          _dio.get('https://tress.hasali.uk/api/feeds'),
+          _dio.get('https://tress.hasali.uk/api/posts'),
+        ]);
+
+        Map<String, Feed> feeds = {};
+        for (final Feed feed in feedsResponse.data.map(
+          (feed) => Feed.fromJson(feed),
+        )) {
+          feeds[feed.id] = feed;
+        }
+
+        return (
+          feeds,
+          (postsResponse.data as List<dynamic>)
+              .map((post) => Post.fromJson(post))
+              .toList(),
+        );
+      })();
+    });
   }
 
   @override
@@ -272,14 +276,17 @@ class _PostsPageState extends State<PostsPage> {
         builder: (context, snapshot) {
           if (snapshot.hasData) {
             final (feeds, posts) = snapshot.requireData;
-            return ListView.separated(
-              padding: EdgeInsets.all(4),
-              itemCount: posts.length,
-              itemBuilder: (context, index) {
-                final post = posts[index];
-                return _PostTile(feed: feeds[post.feedId]!, post: post);
-              },
-              separatorBuilder: (context, index) => Gap(4),
+            return RefreshIndicator(
+              onRefresh: _loadData,
+              child: ListView.separated(
+                padding: EdgeInsets.all(4),
+                itemCount: posts.length,
+                itemBuilder: (context, index) {
+                  final post = posts[index];
+                  return _PostTile(feed: feeds[post.feedId]!, post: post);
+                },
+                separatorBuilder: (context, index) => Gap(4),
+              ),
             );
           }
 
