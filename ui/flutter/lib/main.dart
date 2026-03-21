@@ -209,6 +209,8 @@ class _PostsPageState extends State<PostsPage> {
       });
     } catch (e) {
       setState(() {
+        _feeds = null;
+        _posts = null;
         _error = e;
       });
     }
