@@ -171,7 +171,9 @@ class Post {
 }
 
 class _PostsPageState extends State<PostsPage> {
-  late Future<(Map<String, Feed>, List<Post>)> dataFuture;
+  Map<String, Feed>? _feeds;
+  List<Post>? _posts;
+  Object? _error;
 
   final _urlController = TextEditingController();
 
@@ -183,28 +185,33 @@ class _PostsPageState extends State<PostsPage> {
   }
 
   Future<void> _loadData() async {
-    setState(() {
-      dataFuture = (() async {
-        final [feedsResponse, postsResponse] = await Future.wait([
-          _dio.get('https://tress.hasali.uk/api/feeds'),
-          _dio.get('https://tress.hasali.uk/api/posts'),
-        ]);
+    try {
+      final [feedsResponse, postsResponse] = await Future.wait([
+        _dio.get('https://tress.hasali.uk/api/feeds'),
+        _dio.get('https://tress.hasali.uk/api/posts'),
+      ]);
 
-        Map<String, Feed> feeds = {};
-        for (final Feed feed in feedsResponse.data.map(
-          (feed) => Feed.fromJson(feed),
-        )) {
-          feeds[feed.id] = feed;
-        }
+      Map<String, Feed> feeds = {};
+      for (final Feed feed in feedsResponse.data.map(
+        (feed) => Feed.fromJson(feed),
+      )) {
+        feeds[feed.id] = feed;
+      }
 
-        return (
-          feeds,
-          (postsResponse.data as List<dynamic>)
-              .map((post) => Post.fromJson(post))
-              .toList(),
-        );
-      })();
-    });
+      final posts = (postsResponse.data as List<dynamic>)
+          .map((post) => Post.fromJson(post))
+          .toList();
+
+      setState(() {
+        _feeds = feeds;
+        _posts = posts;
+        _error = null;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e;
+      });
+    }
   }
 
   @override
@@ -271,37 +278,24 @@ class _PostsPageState extends State<PostsPage> {
           ),
         ],
       ),
-      body: FutureBuilder(
-        future: dataFuture,
-        builder: (context, snapshot) {
-          if (snapshot.hasData) {
-            final (feeds, posts) = snapshot.requireData;
-            return RefreshIndicator(
-              onRefresh: _loadData,
-              child: ListView.separated(
-                padding: EdgeInsets.all(4),
-                itemCount: posts.length,
-                itemBuilder: (context, index) {
-                  final post = posts[index];
-                  return _PostTile(feed: feeds[post.feedId]!, post: post);
-                },
-                separatorBuilder: (context, index) => Gap(4),
-              ),
-            );
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                snapshot.error.toString(),
-                textAlign: TextAlign.center,
-              ),
-            );
-          }
-
-          return Center(child: CircularProgressIndicator());
-        },
-      ),
+      body: switch ((_feeds, _posts, _error)) {
+        (final feeds?, final posts?, _) => RefreshIndicator(
+          onRefresh: _loadData,
+          child: ListView.separated(
+            padding: EdgeInsets.all(4),
+            itemCount: posts.length,
+            itemBuilder: (context, index) {
+              final post = posts[index];
+              return _PostTile(feed: feeds[post.feedId]!, post: post);
+            },
+            separatorBuilder: (context, index) => Gap(4),
+          ),
+        ),
+        (_, _, final error?) => Center(
+          child: Text(error.toString(), textAlign: TextAlign.center),
+        ),
+        _ => Center(child: CircularProgressIndicator()),
+      },
     );
   }
 }
