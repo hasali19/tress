@@ -29,7 +29,7 @@ pub struct OidcConfig {
 
 ### Step 2 — Expose OIDC config in `App` struct (`src/main.rs`)
 
-Add optional OIDC fields to the `App` state so the `get_config` handler can include them in the response:
+Add an optional `OidcConfig` field to the `App` state so the `get_config` handler can include it in the response:
 
 ```rust
 struct App {
@@ -37,12 +37,11 @@ struct App {
     sync_sender: mpsc::UnboundedSender<SyncRequest>,
     http_client: Client,
     vapid_key: Arc<ES256KeyPair>,
-    oidc_issuer_url: Option<String>,   // new
-    oidc_client_id: Option<String>,    // new
+    oidc: Option<OidcConfig>,   // new
 }
 ```
 
-Populate from `config.oidc` before it is moved into `JwksClient::new`.
+Clone from `config.oidc` before it is moved into `JwksClient::new`.
 
 ### Step 3 — Restructure router to make `/config` public (`src/main.rs`)
 
