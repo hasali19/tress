@@ -91,16 +91,17 @@ If OIDC is not configured, `oidc` is `null`. The UI uses this to decide whether 
 
 ### Packages to add (`ui/pubspec.yaml`)
 
-- **`flutter_appauth`** — OIDC/OAuth2 authorization code flow with PKCE, using the system browser. Handles the browser redirect, code exchange, and returns tokens.
-- **`flutter_secure_storage`** — Stores the id_token (and refresh token if available) securely in the platform keystore.
+- **`oidc`** — Full OIDC relying party implementation supporting all platforms (Android, iOS, web, Windows, Linux, macOS). Handles discovery, authorization code flow with PKCE, token refresh, and logout via an `OidcUserManager`.
+- **`oidc_default_store`** — Default `OidcStore` implementation for `oidc`, backed by `flutter_secure_storage` + `shared_preferences`. Handles secure token persistence without needing `flutter_secure_storage` directly.
 
 ### Step 5 — Configure Android redirect URI (`ui/android/app/src/main/AndroidManifest.xml`)
 
-`flutter_appauth` uses a custom URI scheme for the redirect. Add an intent filter so Android routes the callback back to the app:
+The `oidc` package uses a custom URI scheme for the redirect callback. Add an intent filter so Android routes it back to the app:
 
 ```xml
-<activity android:name="com.linusu.flutter_web_auth_2.CallbackActivity" ...>
-  <intent-filter android:label="flutter_web_auth_2">
+<activity android:name="net.openid.appauth.RedirectUriReceiverActivity"
+    android:exported="true">
+  <intent-filter>
     <action android:name="android.intent.action.VIEW" />
     <category android:name="android.intent.category.DEFAULT" />
     <category android:name="android.intent.category.BROWSABLE" />
@@ -113,25 +114,27 @@ The redirect URI used in the OIDC flow will be `dev.hasali.tress://auth/callback
 
 ### Step 6 — Create `AuthService` (`ui/lib/auth_service.dart`)
 
-Encapsulates the OIDC flow and token storage:
+Wraps `OidcUserManager` from the `oidc` package:
 
 ```dart
 class AuthService {
-  // Stores id_token (and refresh_token) via flutter_secure_storage
+  // Holds an OidcUserManager configured with issuer URL, client ID, redirect URI
   // Exposes:
-  //   Future<void> login(issuerUrl, clientId)  — triggers browser auth flow
-  //   Future<String?> getIdToken()              — returns current token or null
-  //   Future<String?> refreshIfNeeded()         — refresh using refresh_token
-  //   Future<void> logout()                     — clears stored tokens
+  //   Future<void> init()                   — loads stored session, sets up manager
+  //   Future<void> login()                  — triggers browser auth flow
+  //   Future<String?> getIdToken()          — returns current id_token or null
+  //   Stream<OidcUser?> get userChanges     — stream of auth state changes
+  //   Future<void> logout()                 — RP-initiated logout + clears store
 }
 ```
 
 Key implementation details:
-- Uses `FlutterAppAuth.authorizeAndExchangeCode()` with PKCE
+- `OidcUserManager` is initialized with `OidcProviderMetadata.fromUri(issuerUrl)` (auto-fetches discovery document) or via `OidcUserManager.lazy()`
+- Uses `OidcDefaultStore` from `oidc_default_store` for token persistence
 - Requests scopes: `['openid', 'profile']`
 - Redirect URI: `dev.hasali.tress://auth/callback`
-- Stores `id_token` and `refresh_token` in secure storage
-- On token expiry, attempts silent refresh using the refresh token
+- Token refresh is handled automatically by `OidcUserManager` — no manual refresh logic needed
+- `getIdToken()` returns `userManager.currentUser?.token.idToken`
 
 ### Step 7 — Update `ApiClient` to attach Bearer token (`ui/lib/api_client.dart`)
 
@@ -205,7 +208,7 @@ All subsequent API calls:
 |------|--------|
 | `src/config.rs` | Add `client_id` to `OidcConfig` |
 | `src/main.rs` | Add OIDC fields to `App`, restructure router, update `get_config` |
-| `ui/pubspec.yaml` | Add `flutter_appauth`, `flutter_secure_storage` |
+| `ui/pubspec.yaml` | Add `oidc`, `oidc_default_store` |
 | `ui/android/app/src/main/AndroidManifest.xml` | Add redirect URI intent filter |
 | `ui/lib/auth_service.dart` | New file — OIDC flow + token storage |
 | `ui/lib/api_client.dart` | Add Dio interceptor for Bearer token |
