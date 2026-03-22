@@ -6,18 +6,14 @@ final _redirectUri = Uri.parse('dev.hasali.tress://auth/callback');
 class AuthService {
   late OidcUserManager _manager;
 
-  Future<void> init({
-    required Uri issuerUri,
-    required String clientId,
-  }) async {
+  Future<void> init({required Uri issuerUri, required String clientId}) async {
     _manager = OidcUserManager.lazy(
-      discoveryDocumentUri:
-          OidcUtils.getOpenIdConfigWellKnownUri(issuerUri),
+      discoveryDocumentUri: OidcUtils.getOpenIdConfigWellKnownUri(issuerUri),
       clientCredentials: OidcClientAuthentication.none(clientId: clientId),
       store: OidcDefaultStore(),
       settings: OidcUserManagerSettings(
         redirectUri: _redirectUri,
-        scopes: ['openid', 'profile'],
+        scope: ['openid', 'profile'],
       ),
     );
 

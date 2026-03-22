@@ -10,15 +10,17 @@ class ApiClient {
 
   ApiClient({AuthService? authService}) {
     if (authService != null) {
-      _dio.interceptors.add(InterceptorsWrapper(
-        onRequest: (options, handler) async {
-          final token = authService.idToken;
-          if (token != null) {
-            options.headers['Authorization'] = 'Bearer $token';
-          }
-          handler.next(options);
-        },
-      ));
+      _dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) async {
+            final token = authService.idToken;
+            if (token != null) {
+              options.headers['Authorization'] = 'Bearer $token';
+            }
+            handler.next(options);
+          },
+        ),
+      );
     }
   }
 

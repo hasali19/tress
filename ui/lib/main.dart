@@ -38,7 +38,9 @@ void main(List<String> args) async {
     }
   }
 
-  GetIt.instance.registerSingleton<ApiClient>(ApiClient(authService: authService));
+  GetIt.instance.registerSingleton<ApiClient>(
+    ApiClient(authService: authService),
+  );
 
   await _pushChannel.invokeMethod('register', {
     'vapid_key': config['vapid']['public_key'],
