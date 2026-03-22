@@ -67,9 +67,7 @@ class _PostsPageState extends State<PostsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Posts'),
-      ),
+      appBar: AppBar(title: const Text('Posts')),
       body: switch ((_feeds, _posts, _error)) {
         (final feeds?, final posts?, _) => RefreshIndicator(
           onRefresh: _loadData,

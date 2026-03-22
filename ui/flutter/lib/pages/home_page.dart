@@ -10,10 +10,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AutoTabsScaffold(
-      routes: const [
-        PostsRoute(),
-        FeedsRoute(),
-      ],
+      routes: const [PostsRoute(), FeedsRoute()],
       bottomNavigationBuilder: (_, tabsRouter) {
         return NavigationBar(
           selectedIndex: tabsRouter.activeIndex,

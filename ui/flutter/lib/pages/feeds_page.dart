@@ -121,10 +121,7 @@ class _FeedsPageState extends State<FeedsPage> {
               return ListTile(
                 leading: const Icon(Icons.rss_feed),
                 title: Text(feed.title),
-                subtitle: Text(
-                  feed.url,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                subtitle: Text(feed.url, overflow: TextOverflow.ellipsis),
               );
             },
             separatorBuilder: (context, index) => const Divider(height: 1),
