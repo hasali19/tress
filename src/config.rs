@@ -26,6 +26,9 @@ impl OidcConfig {
         };
         let client_id = std::env::var("OIDC_CLIENT_ID")
             .map_err(|_| eyre::eyre!("OIDC_CLIENT_ID must be set when OIDC_ISSUER_URL is set"))?;
-        Ok(Some(OidcConfig { issuer_url, client_id }))
+        Ok(Some(OidcConfig {
+            issuer_url,
+            client_id,
+        }))
     }
 }
