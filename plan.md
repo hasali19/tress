@@ -94,21 +94,18 @@ If OIDC is not configured, `oidc` is `null`. The UI uses this to decide whether 
 - **`oidc`** — Full OIDC relying party implementation supporting all platforms (Android, iOS, web, Windows, Linux, macOS). Handles discovery, authorization code flow with PKCE, token refresh, and logout via an `OidcUserManager`.
 - **`oidc_default_store`** — Default `OidcStore` implementation for `oidc`, backed by `flutter_secure_storage` + `shared_preferences`. Handles secure token persistence without needing `flutter_secure_storage` directly.
 
-### Step 5 — Configure Android redirect URI (`ui/android/app/src/main/AndroidManifest.xml`)
+### Step 5 — Configure Android redirect scheme (`ui/android/app/build.gradle`)
 
-The `oidc` package uses a custom URI scheme for the redirect callback. Add an intent filter so Android routes it back to the app:
+The `oidc` package uses `oidc_flutter_appauth` under the hood for Android, which handles the redirect intent filter automatically via a manifest placeholder. No manual `AndroidManifest.xml` changes are needed — just add `appAuthRedirectScheme` to `defaultConfig` in `build.gradle`:
 
-```xml
-<activity android:name="net.openid.appauth.RedirectUriReceiverActivity"
-    android:exported="true">
-  <intent-filter>
-    <action android:name="android.intent.action.VIEW" />
-    <category android:name="android.intent.category.DEFAULT" />
-    <category android:name="android.intent.category.BROWSABLE" />
-    <data android:scheme="dev.hasali.tress" android:host="auth" />
-  </intent-filter>
-</activity>
+```gradle
+defaultConfig {
+    // ...
+    manifestPlaceholders += ['appAuthRedirectScheme': 'dev.hasali.tress']
+}
 ```
+
+Also ensure `minSdkVersion` is set to at least 21.
 
 The redirect URI used in the OIDC flow will be `dev.hasali.tress://auth/callback`.
 
@@ -209,7 +206,7 @@ All subsequent API calls:
 | `src/config.rs` | Add `client_id` to `OidcConfig` |
 | `src/main.rs` | Add OIDC fields to `App`, restructure router, update `get_config` |
 | `ui/pubspec.yaml` | Add `oidc`, `oidc_default_store` |
-| `ui/android/app/src/main/AndroidManifest.xml` | Add redirect URI intent filter |
+| `ui/android/app/build.gradle` | Add `appAuthRedirectScheme` manifest placeholder, ensure `minSdkVersion >= 21` |
 | `ui/lib/auth_service.dart` | New file — OIDC flow + token storage |
 | `ui/lib/api_client.dart` | Add Dio interceptor for Bearer token |
 | `ui/lib/main.dart` | Gate startup on auth when OIDC is configured |
