@@ -16,7 +16,7 @@ chrono = "0.4.41"
 color-eyre = "0.6.5"
 eyre = "0.6.12"
 itertools = "0.14.0"
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 log = "0.4.27"
 migration = { path = "migration" }
 parking_lot = "0.12.5"
