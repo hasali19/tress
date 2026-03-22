@@ -68,7 +68,7 @@ jobs:
           channel: beta
 
       - name: Check formatting
-        working-directory: ui/flutter
+        working-directory: ui
         run: |
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
@@ -92,7 +92,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - working-directory: ui/flutter
+      - working-directory: ui
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
         run: |
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: tress-android
-          path: ui/flutter/build/app/outputs/flutter-apk/app-*-release.apk
+          path: ui/build/app/outputs/flutter-apk/app-*-release.apk
 
   release:
     runs-on: ubuntu-latest
