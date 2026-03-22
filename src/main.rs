@@ -1,4 +1,7 @@
+mod auth_middleware;
+mod config;
 mod entities;
+mod jwks;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -35,8 +38,10 @@ use web_push_native::jwt_simple::prelude::{ECDSAP256KeyPairLike, ES256KeyPair};
 use web_push_native::p256::PublicKey;
 use web_push_native::{Auth, WebPushBuilder};
 
+use crate::config::Config;
 use crate::entities::prelude::*;
 use crate::entities::{feeds, posts, push_subscriptions};
+use crate::jwks::JwksClient;
 
 #[derive(Clone)]
 struct App {
@@ -58,7 +63,8 @@ async fn main() -> eyre::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let db = init_db().await?;
+    let config = Config::from_env();
+    let db = init_db(&config.database_url).await?;
 
     let key_path = Path::new("data/private_key.pem");
     let vapid_key = Arc::new(if let Ok(key) = std::fs::read_to_string(key_path) {
@@ -95,6 +101,14 @@ async fn main() -> eyre::Result<()> {
         })
         .build()?;
 
+    let jwks_client = if let Some(oidc) = config.oidc {
+        tracing::info!("OIDC auth enabled (issuer: {})", oidc.issuer_url);
+        Some(JwksClient::new(http_client.clone(), &oidc.issuer_url, oidc.audience).await?)
+    } else {
+        tracing::info!("OIDC auth disabled — set OIDC_ISSUER_URL to enable");
+        None
+    };
+
     let push_client = PushClient {
         http_client: http_client.clone(),
         vapid_key: vapid_key.clone(),
@@ -118,6 +132,10 @@ async fn main() -> eyre::Result<()> {
             StatusCode::NOT_FOUND,
             Json(json!({"message": "not found"})),
         )))
+        .layer(axum::middleware::from_fn_with_state(
+            jwks_client,
+            auth_middleware::auth_middleware,
+        ))
         .with_state(App {
             db: db.clone(),
             sync_sender,
@@ -174,9 +192,8 @@ impl PushClient {
     }
 }
 
-async fn init_db() -> eyre::Result<DatabaseConnection> {
-    // TODO: DB url should be configurable
-    let mut options = ConnectOptions::new("sqlite://data/tress.db?mode=rwc");
+async fn init_db(url: &str) -> eyre::Result<DatabaseConnection> {
+    let mut options = ConnectOptions::new(url);
     options
         .max_connections(1)
         .sqlx_logging_level(log::LevelFilter::Debug);
