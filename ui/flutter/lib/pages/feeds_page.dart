@@ -4,10 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 
-@RoutePage()
-
 final _dio = Dio();
 
+@RoutePage()
 class FeedsPage extends StatefulWidget {
   const FeedsPage({super.key});
 
