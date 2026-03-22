@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use axum::extract::{self, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use backon::{ExponentialBuilder, Retryable};
@@ -22,8 +22,8 @@ use reqwest::{Client, Request};
 use scraper::{Html, Selector};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ConnectOptions, Database, DatabaseConnection, EntityTrait,
-    QueryOrder, SqlErr,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
+    DbErr, EntityTrait, ModelTrait, QueryFilter, QueryOrder, SqlErr, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -125,7 +125,7 @@ async fn main() -> eyre::Result<()> {
         .route("/config", get(get_config))
         .route("/push_subscriptions", post(create_push_subscription))
         .route("/feeds", get(get_feeds).post(add_feed))
-        .route("/feeds/{id}", get(get_feed))
+        .route("/feeds/{id}", get(get_feed).delete(delete_feed))
         .route("/posts", get(get_posts))
         .route("/posts/{id}", get(get_post))
         .fallback(any((
@@ -252,6 +252,34 @@ async fn get_config(State(app): State<App>) -> impl IntoResponse {
     }))
 }
 
+enum ApiError {
+    NotFound,
+    Internal,
+}
+
+impl From<DbErr> for ApiError {
+    fn from(e: DbErr) -> Self {
+        tracing::error!("{e}");
+        Self::Internal
+    }
+}
+
+impl From<eyre::Report> for ApiError {
+    fn from(e: eyre::Report) -> Self {
+        tracing::error!("{e:?}");
+        Self::Internal
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        match self {
+            Self::NotFound => StatusCode::NOT_FOUND.into_response(),
+            Self::Internal => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 struct FeedResponse {
     id: String,
@@ -259,15 +287,8 @@ struct FeedResponse {
     url: String,
 }
 
-async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, StatusCode> {
-    let feeds = match Feeds::find().all(&app.db).await {
-        Ok(posts) => posts,
-        Err(e) => {
-            tracing::error!("{e}");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
-
+async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, ApiError> {
+    let feeds = Feeds::find().all(&app.db).await?;
     Ok(Json(
         feeds
             .into_iter()
@@ -283,21 +304,39 @@ async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, StatusCo
 async fn get_feed(
     extract::Path(id): extract::Path<Uuid>,
     State(app): State<App>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let feed = match Feeds::find_by_id(id).one(&app.db).await {
-        Ok(Some(feed)) => feed,
-        Ok(None) => return Err(StatusCode::NOT_FOUND),
-        Err(e) => {
-            tracing::error!("{e}");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
-
+) -> Result<impl IntoResponse, ApiError> {
+    let feed = Feeds::find_by_id(id)
+        .one(&app.db)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     Ok(Json(FeedResponse {
         id: feed.id.to_string(),
         title: feed.title,
         url: feed.url,
     }))
+}
+
+async fn delete_feed(
+    extract::Path(id): extract::Path<Uuid>,
+    State(app): State<App>,
+) -> Result<impl IntoResponse, ApiError> {
+    let txn = app.db.begin().await?;
+
+    let feed = Feeds::find_by_id(id)
+        .one(&txn)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    Posts::delete_many()
+        .filter(posts::Column::FeedId.eq(id))
+        .exec(&txn)
+        .await?;
+
+    feed.delete(&txn).await?;
+
+    txn.commit().await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]
@@ -308,14 +347,8 @@ struct CreateFeedReq {
 async fn add_feed(
     State(app): State<App>,
     Json(req): Json<CreateFeedReq>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let feed = match fetch_feed(&app.http_client, &req.url).await {
-        Ok(feed) => feed,
-        Err(e) => {
-            tracing::error!("{e:?}");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
+) -> Result<impl IntoResponse, ApiError> {
+    let feed = fetch_feed(&app.http_client, &req.url).await?;
 
     let title = match feed {
         Feed::Atom(feed) => feed.title.value,
@@ -329,13 +362,7 @@ async fn add_feed(
         ..Default::default()
     };
 
-    let feed = match feed.insert(&app.db).await {
-        Ok(feed) => feed,
-        Err(e) => {
-            tracing::error!("{e}");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
+    let feed = feed.insert(&app.db).await?;
 
     tracing::info!("added feed: {feed:?}");
 
@@ -362,19 +389,11 @@ struct PostResponse {
     url: String,
 }
 
-async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, StatusCode> {
-    let posts = match Posts::find()
+async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, ApiError> {
+    let posts = Posts::find()
         .order_by_desc(posts::Column::PublishTime)
         .all(&app.db)
-        .await
-    {
-        Ok(posts) => posts,
-        Err(e) => {
-            tracing::error!("{e}");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
-
+        .await?;
     Ok(Json(
         posts
             .into_iter()
@@ -394,16 +413,11 @@ async fn get_posts(State(app): State<App>) -> Result<impl IntoResponse, StatusCo
 async fn get_post(
     State(app): State<App>,
     extract::Path(id): extract::Path<Uuid>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let post = match Posts::find_by_id(id).one(&app.db).await {
-        Ok(Some(post)) => post,
-        Ok(None) => return Err(StatusCode::NOT_FOUND),
-        Err(e) => {
-            tracing::error!("{e}");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
-
+) -> Result<impl IntoResponse, ApiError> {
+    let post = Posts::find_by_id(id)
+        .one(&app.db)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     Ok(Json(PostResponse {
         id: post.id.to_string(),
         feed_id: post.feed_id.to_string(),

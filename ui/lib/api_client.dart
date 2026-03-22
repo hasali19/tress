@@ -36,6 +36,10 @@ class ApiClient {
     await _dio.post('$_baseUrl/feeds', data: {'url': url});
   }
 
+  Future<void> deleteFeed(String id) async {
+    await _dio.delete('$_baseUrl/feeds/$id');
+  }
+
   Future<void> registerPushSubscription(
     String endpoint,
     String? auth,
