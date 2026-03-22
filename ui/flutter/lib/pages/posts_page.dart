@@ -1,4 +1,3 @@
-import 'package:auto_route/auto_route.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -7,51 +6,11 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
+import '../models.dart';
+
 final _dio = Dio();
 final _dateFormat = DateFormat.yMMMd();
 
-class Feed {
-  final String id;
-  final String title;
-  final String url;
-
-  Feed({required this.id, required this.title, required this.url});
-
-  factory Feed.fromJson(Map<String, dynamic> json) =>
-      Feed(id: json['id'], title: json['title'], url: json['url']);
-}
-
-class Post {
-  final String id;
-  final String feedId;
-  final String title;
-  final DateTime postTime;
-  final String? thumbnail;
-  final String? description;
-  final String url;
-
-  Post({
-    required this.id,
-    required this.feedId,
-    required this.title,
-    required this.postTime,
-    required this.thumbnail,
-    required this.description,
-    required this.url,
-  });
-
-  factory Post.fromJson(Map<String, dynamic> json) => Post(
-    id: json['id'],
-    feedId: json['feed_id'],
-    title: json['title'],
-    postTime: DateTime.parse(json['post_time']),
-    thumbnail: json['thumbnail'],
-    description: json['description'],
-    url: json['url'],
-  );
-}
-
-@RoutePage()
 class PostsPage extends StatefulWidget {
   const PostsPage({super.key});
 
@@ -63,8 +22,6 @@ class _PostsPageState extends State<PostsPage> {
   Map<String, Feed>? _feeds;
   List<Post>? _posts;
   Object? _error;
-
-  final _urlController = TextEditingController();
 
   @override
   void initState() {
@@ -109,83 +66,25 @@ class _PostsPageState extends State<PostsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Posts'),
-        actions: [
-          IconButton(
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) {
-                  return AlertDialog(
-                    title: Text('Add Feed'),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextField(
-                          controller: _urlController,
-                          decoration: InputDecoration(
-                            hintText: 'https://example.com/index.xml',
-                          ),
-                        ),
-                      ],
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          final url = _urlController.text;
-
-                          try {
-                            await _dio.post(
-                              'https://tress.hasali.uk/api/feeds',
-                              data: {'url': url},
-                            );
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Failed to add feed'),
-                                ),
-                              );
-                            }
-                          }
-
-                          if (context.mounted) {
-                            Navigator.pop(context);
-                            _urlController.clear();
-                          }
-                        },
-                        child: Text('Ok'),
-                      ),
-                    ],
-                  );
-                },
-              );
-            },
-            icon: Icon(Icons.add),
-          ),
-        ],
+        title: const Text('Posts'),
       ),
       body: switch ((_feeds, _posts, _error)) {
         (final feeds?, final posts?, _) => RefreshIndicator(
           onRefresh: _loadData,
           child: ListView.separated(
-            padding: EdgeInsets.all(4),
+            padding: const EdgeInsets.all(4),
             itemCount: posts.length,
             itemBuilder: (context, index) {
               final post = posts[index];
               return _PostTile(feed: feeds[post.feedId]!, post: post);
             },
-            separatorBuilder: (context, index) => Gap(4),
+            separatorBuilder: (context, index) => const Gap(4),
           ),
         ),
         (_, _, final error?) => Center(
           child: Text(error.toString(), textAlign: TextAlign.center),
         ),
-        _ => Center(child: CircularProgressIndicator()),
+        _ => const Center(child: CircularProgressIndicator()),
       },
     );
   }
@@ -202,7 +101,7 @@ final class _PostTile extends StatelessWidget {
     Widget? image;
     if (post.thumbnail case String thumbnail) {
       image = ConstrainedBox(
-        constraints: BoxConstraints(minHeight: 120),
+        constraints: const BoxConstraints(minHeight: 120),
         child: CachedNetworkImage(
           imageUrl: thumbnail,
           width: 120,
@@ -212,7 +111,7 @@ final class _PostTile extends StatelessWidget {
               color: Theme.of(context).colorScheme.surfaceContainerHigh,
               elevation: 1.0,
               surfaceTintColor: Colors.transparent,
-              child: Center(child: Icon(Icons.error_outline)),
+              child: const Center(child: Icon(Icons.error_outline)),
             );
           },
         ),
@@ -251,7 +150,7 @@ final class _PostTile extends StatelessWidget {
                           ),
                         ],
                       ),
-                      Gap(4),
+                      const Gap(4),
                       Text(post.title, style: titleStyle),
                       if (post.description case String description)
                         Text(
