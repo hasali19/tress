@@ -3,10 +3,10 @@ use std::time::Duration;
 
 use jsonwebtoken::jwk::{Jwk, JwkSet};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
+use parking_lot::RwLock;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use parking_lot::RwLock;
 
 #[derive(Debug, Error)]
 pub enum AuthError {

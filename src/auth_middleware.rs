@@ -5,9 +5,9 @@ use axum::http::header::WWW_AUTHENTICATE;
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum_extra::headers::authorization::Bearer;
-use axum_extra::headers::Authorization;
 use axum_extra::TypedHeader;
+use axum_extra::headers::Authorization;
+use axum_extra::headers::authorization::Bearer;
 
 use crate::jwks::JwksClient;
 
