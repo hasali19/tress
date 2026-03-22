@@ -14,6 +14,7 @@ class FeedsPage extends StatefulWidget {
 }
 
 class _FeedsPageState extends State<FeedsPage> {
+  late final ApiClient _apiClient;
   List<Feed>? _feeds;
   Object? _error;
 
@@ -22,12 +23,13 @@ class _FeedsPageState extends State<FeedsPage> {
   @override
   void initState() {
     super.initState();
+    _apiClient = GetIt.instance<ApiClient>();
     _loadData();
   }
 
   Future<void> _loadData() async {
     try {
-      final feeds = await GetIt.instance<ApiClient>().getFeeds();
+      final feeds = await _apiClient.getFeeds();
       setState(() {
         _feeds = feeds;
         _error = null;
@@ -73,7 +75,7 @@ class _FeedsPageState extends State<FeedsPage> {
                         onPressed: () async {
                           final url = _urlController.text;
                           try {
-                            await GetIt.instance<ApiClient>().addFeed(url);
+                            await _apiClient.addFeed(url);
                             await _loadData();
                           } catch (e) {
                             if (context.mounted) {

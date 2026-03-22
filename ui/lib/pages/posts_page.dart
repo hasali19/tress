@@ -21,6 +21,7 @@ class PostsPage extends StatefulWidget {
 }
 
 class _PostsPageState extends State<PostsPage> {
+  late final ApiClient _apiClient;
   Map<String, Feed>? _feeds;
   List<Post>? _posts;
   Object? _error;
@@ -28,16 +29,16 @@ class _PostsPageState extends State<PostsPage> {
   @override
   void initState() {
     super.initState();
+    _apiClient = GetIt.instance<ApiClient>();
     _loadData();
     Permission.notification.request();
   }
 
   Future<void> _loadData() async {
-    final apiClient = GetIt.instance<ApiClient>();
     try {
       final [feeds, posts] = await Future.wait([
-        apiClient.getFeeds(),
-        apiClient.getPosts(),
+        _apiClient.getFeeds(),
+        _apiClient.getPosts(),
       ]);
 
       setState(() {

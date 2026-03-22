@@ -34,7 +34,7 @@ void main(List<String> args) async {
 void pushEntrypoint() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  GetIt.instance.registerSingleton<ApiClient>(ApiClient());
+  final apiClient = ApiClient();
 
   String? url;
 
@@ -44,7 +44,7 @@ void pushEntrypoint() {
         final newUrl = call.arguments['url'];
         if (newUrl != url) {
           url = newUrl;
-          await GetIt.instance<ApiClient>().registerPushSubscription(
+          await apiClient.registerPushSubscription(
             newUrl,
             call.arguments['keys']['auth'],
             call.arguments['keys']['pub'],
@@ -52,20 +52,20 @@ void pushEntrypoint() {
         }
         break;
       case 'onMessage':
-        _handlePushMessage(call.arguments['content'], '');
+        _handlePushMessage(apiClient, call.arguments['content'], '');
         break;
     }
   });
 }
 
 Future<void> _handlePushMessage(
+  ApiClient apiClient,
   Uint8List messageContent,
   String instance,
 ) async {
   const notificationsChannel = MethodChannel('tress.hasali.dev/notifications');
 
   final messageData = jsonDecode(utf8.decode(messageContent));
-  final apiClient = GetIt.instance<ApiClient>();
 
   final post = await apiClient.getPost(messageData['id']);
   final feed = await apiClient.getFeed(post.feedId);
