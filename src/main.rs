@@ -49,7 +49,7 @@ struct App {
     sync_sender: mpsc::UnboundedSender<SyncRequest>,
     http_client: Client,
     vapid_key: Arc<ES256KeyPair>,
-    oidc: Option<OidcConfig>,
+    oidc_config: Option<OidcConfig>,
 }
 
 #[tokio::main]
@@ -147,7 +147,7 @@ async fn main() -> eyre::Result<()> {
             sync_sender,
             http_client,
             vapid_key,
-            oidc: oidc_config,
+            oidc_config,
         });
 
     let app = Router::new()
@@ -252,7 +252,7 @@ async fn get_config(State(app): State<App>) -> impl IntoResponse {
         .public_key()
         .to_bytes_uncompressed();
 
-    let oidc = app.oidc.as_ref().map(|oidc| {
+    let oidc = app.oidc_config.as_ref().map(|oidc| {
         json!({
             "issuer_url": oidc.issuer_url,
             "client_id": oidc.client_id,

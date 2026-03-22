@@ -7,19 +7,19 @@ class ApiClient {
   static const _baseUrl = 'https://tress.hasali.uk/api';
 
   final Dio _dio = Dio();
-  AuthService? _authService;
 
-  void setAuthService(AuthService authService) {
-    _authService = authService;
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) async {
-        final token = _authService?.idToken;
-        if (token != null) {
-          options.headers['Authorization'] = 'Bearer $token';
-        }
-        handler.next(options);
-      },
-    ));
+  ApiClient({AuthService? authService}) {
+    if (authService != null) {
+      _dio.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final token = authService.idToken;
+          if (token != null) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
+      ));
+    }
   }
 
   Future<Map<String, dynamic>> getConfig() async {

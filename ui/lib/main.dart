@@ -20,25 +20,24 @@ void main(List<String> args) async {
   await findSystemLocale();
   await initializeDateFormatting();
 
-  final apiClient = ApiClient();
-  GetIt.instance.registerSingleton<ApiClient>(apiClient);
+  final config = await ApiClient().getConfig();
 
-  final config = await apiClient.getConfig();
-
+  AuthService? authService;
   final oidcConfig = config['oidc'];
   if (oidcConfig != null) {
-    final authService = AuthService();
+    authService = AuthService();
     await authService.init(
-      issuerUrl: oidcConfig['issuer_url'],
+      issuerUri: Uri.parse(oidcConfig['issuer_url']),
       clientId: oidcConfig['client_id'],
     );
-    apiClient.setAuthService(authService);
     GetIt.instance.registerSingleton<AuthService>(authService);
 
     if (!authService.isAuthenticated) {
       await authService.login();
     }
   }
+
+  GetIt.instance.registerSingleton<ApiClient>(ApiClient(authService: authService));
 
   await _pushChannel.invokeMethod('register', {
     'vapid_key': config['vapid']['public_key'],

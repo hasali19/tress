@@ -23,7 +23,8 @@ pub struct OidcConfig {
 impl OidcConfig {
     pub fn from_env() -> Option<Self> {
         let issuer_url = std::env::var("OIDC_ISSUER_URL").ok()?;
-        let client_id = std::env::var("OIDC_CLIENT_ID").unwrap_or_default();
+        let client_id = std::env::var("OIDC_CLIENT_ID")
+            .expect("OIDC_CLIENT_ID must be set when OIDC_ISSUER_URL is set");
         Some(OidcConfig {
             issuer_url,
             client_id,
