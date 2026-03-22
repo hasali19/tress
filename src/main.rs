@@ -10,7 +10,7 @@ use std::time::Duration;
 use axum::extract::{self, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, delete, get, post};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use backon::{ExponentialBuilder, Retryable};
 use base64ct::{Base64UrlUnpadded, Encoding};
