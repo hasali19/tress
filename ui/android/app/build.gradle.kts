@@ -36,6 +36,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders += mapOf("appAuthRedirectScheme" to "dev.hasali.tress")
     }
 
     signingConfigs {
@@ -63,6 +64,12 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// tink-android and tink (JVM) are both pulled in transitively and contain
+// duplicate classes. Exclude the non-Android artifact everywhere.
+configurations.all {
+    exclude(group = "com.google.crypto.tink", module = "tink")
 }
 
 dependencies {

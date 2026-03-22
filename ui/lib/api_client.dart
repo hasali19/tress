@@ -1,11 +1,28 @@
 import 'package:dio/dio.dart';
 
+import 'auth_service.dart';
 import 'models.dart';
 
 class ApiClient {
   static const _baseUrl = 'https://tress.hasali.uk/api';
 
   final Dio _dio = Dio();
+
+  ApiClient({AuthService? authService}) {
+    if (authService != null) {
+      _dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) async {
+            final token = authService.idToken;
+            if (token != null) {
+              options.headers['Authorization'] = 'Bearer $token';
+            }
+            handler.next(options);
+          },
+        ),
+      );
+    }
+  }
 
   Future<Map<String, dynamic>> getConfig() async {
     final res = await _dio.get('$_baseUrl/config');

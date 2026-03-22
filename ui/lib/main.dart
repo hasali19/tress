@@ -7,6 +7,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/find_locale.dart';
 
 import 'api_client.dart';
+import 'auth_service.dart';
 import 'router.dart';
 
 const _pushChannel = MethodChannel('tress.hasali.dev/push');
@@ -19,9 +20,26 @@ void main(List<String> args) async {
   await findSystemLocale();
   await initializeDateFormatting();
 
-  GetIt.instance.registerSingleton<ApiClient>(ApiClient());
+  // TODO: avoid creating a second ApiClient below when OIDC is configured
+  final config = await ApiClient().getConfig();
 
-  final config = await GetIt.instance<ApiClient>().getConfig();
+  AuthService? authService;
+  final oidcConfig = config['oidc'];
+  if (oidcConfig != null) {
+    authService = await AuthService.init(
+      issuerUri: Uri.parse(oidcConfig['issuer_url']),
+      clientId: oidcConfig['client_id'],
+    );
+    GetIt.instance.registerSingleton<AuthService>(authService);
+
+    if (!authService.isAuthenticated) {
+      await authService.login();
+    }
+  }
+
+  GetIt.instance.registerSingleton<ApiClient>(
+    ApiClient(authService: authService),
+  );
 
   await _pushChannel.invokeMethod('register', {
     'vapid_key': config['vapid']['public_key'],
