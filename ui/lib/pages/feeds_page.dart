@@ -117,6 +117,44 @@ class _FeedsPageState extends State<FeedsPage> {
                 leading: const Icon(Icons.rss_feed),
                 title: Text(feed.title),
                 subtitle: Text(feed.url, overflow: TextOverflow.ellipsis),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Delete Feed'),
+                        content: Text(
+                          'Delete "${feed.title}" and all its posts?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) {
+                      try {
+                        await _apiClient.deleteFeed(feed.id);
+                        await _loadData();
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Failed to delete feed'),
+                            ),
+                          );
+                        }
+                      }
+                    }
+                  },
+                ),
               );
             },
             separatorBuilder: (context, index) => const Divider(height: 1),

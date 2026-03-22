@@ -10,7 +10,7 @@ use std::time::Duration;
 use axum::extract::{self, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::{any, get, post};
+use axum::routing::{any, delete, get, post};
 use axum::{Json, Router};
 use backon::{ExponentialBuilder, Retryable};
 use base64ct::{Base64UrlUnpadded, Encoding};
@@ -22,8 +22,8 @@ use reqwest::{Client, Request};
 use scraper::{Html, Selector};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ConnectOptions, Database, DatabaseConnection, EntityTrait,
-    QueryOrder, SqlErr,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
+    EntityTrait, QueryFilter, QueryOrder, SqlErr,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -125,7 +125,7 @@ async fn main() -> eyre::Result<()> {
         .route("/config", get(get_config))
         .route("/push_subscriptions", post(create_push_subscription))
         .route("/feeds", get(get_feeds).post(add_feed))
-        .route("/feeds/{id}", get(get_feed))
+        .route("/feeds/{id}", get(get_feed).delete(delete_feed))
         .route("/posts", get(get_posts))
         .route("/posts/{id}", get(get_post))
         .fallback(any((
@@ -298,6 +298,36 @@ async fn get_feed(
         title: feed.title,
         url: feed.url,
     }))
+}
+
+async fn delete_feed(
+    extract::Path(id): extract::Path<Uuid>,
+    State(app): State<App>,
+) -> Result<impl IntoResponse, StatusCode> {
+    match Feeds::find_by_id(id).one(&app.db).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(e) => {
+            tracing::error!("{e}");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    if let Err(e) = Posts::delete_many()
+        .filter(posts::Column::FeedId.eq(id))
+        .exec(&app.db)
+        .await
+    {
+        tracing::error!("{e}");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    if let Err(e) = Feeds::delete_by_id(id).exec(&app.db).await {
+        tracing::error!("{e}");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]
