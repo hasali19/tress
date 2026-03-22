@@ -66,6 +66,12 @@ flutter {
     source = "../.."
 }
 
+// tink-android and tink (JVM) are both pulled in transitively and contain
+// duplicate classes. Exclude the non-Android artifact everywhere.
+configurations.all {
+    exclude(group = "com.google.crypto.tink", module = "tink")
+}
+
 dependencies {
     implementation("org.unifiedpush.android:connector:3.1.2")
     implementation("org.unifiedpush.android:embedded-fcm-distributor:3.0.0")
