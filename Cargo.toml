@@ -9,6 +9,7 @@ members = ["migration"]
 [dependencies]
 atom_syndication = "0.12.7"
 axum = "0.8.4"
+axum-extra = { version = "0.12.5", features = ["typed-header"] }
 backon = "1.5.1"
 base64ct = "1.8.0"
 chrono = "0.4.41"
