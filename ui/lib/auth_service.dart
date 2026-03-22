@@ -7,17 +7,15 @@ class AuthService {
   final OidcUserManager _manager;
 
   AuthService._({required Uri issuerUri, required String clientId})
-      : _manager = OidcUserManager.lazy(
-          discoveryDocumentUri:
-              OidcUtils.getOpenIdConfigWellKnownUri(issuerUri),
-          clientCredentials:
-              OidcClientAuthentication.none(clientId: clientId),
-          store: OidcDefaultStore(),
-          settings: OidcUserManagerSettings(
-            redirectUri: _redirectUri,
-            scope: ['openid', 'profile'],
-          ),
-        );
+    : _manager = OidcUserManager.lazy(
+        discoveryDocumentUri: OidcUtils.getOpenIdConfigWellKnownUri(issuerUri),
+        clientCredentials: OidcClientAuthentication.none(clientId: clientId),
+        store: OidcDefaultStore(),
+        settings: OidcUserManagerSettings(
+          redirectUri: _redirectUri,
+          scope: ['openid', 'profile'],
+        ),
+      );
 
   static Future<AuthService> init({
     required Uri issuerUri,
