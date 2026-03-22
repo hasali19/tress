@@ -74,6 +74,10 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
           dart format --output=none --set-exit-if-changed .
 
+      - uses: infotroph/tree-is-clean@v1
+        with:
+          check_untracked: true
+
   build_ui:
     runs-on: ubuntu-latest
     steps:
