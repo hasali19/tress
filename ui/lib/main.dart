@@ -26,8 +26,7 @@ void main(List<String> args) async {
   AuthService? authService;
   final oidcConfig = config['oidc'];
   if (oidcConfig != null) {
-    authService = AuthService();
-    await authService.init(
+    authService = await AuthService.init(
       issuerUri: Uri.parse(oidcConfig['issuer_url']),
       clientId: oidcConfig['client_id'],
     );
