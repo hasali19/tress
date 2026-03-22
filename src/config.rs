@@ -17,7 +17,6 @@ impl Config {
 pub struct OidcConfig {
     pub issuer_url: String,
     pub client_id: String,
-    pub audience: Option<String>,
 }
 
 impl OidcConfig {
@@ -30,7 +29,6 @@ impl OidcConfig {
         Ok(Some(OidcConfig {
             issuer_url,
             client_id,
-            audience: std::env::var("OIDC_AUDIENCE").ok(),
         }))
     }
 }

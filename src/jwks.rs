@@ -29,7 +29,7 @@ struct OidcDiscovery {
 
 pub struct JwksClient {
     issuer: String,
-    audience: Option<String>,
+    client_id: String,
     jwks_uri: String,
     http_client: Client,
     key_set: RwLock<JwkSet>,
@@ -39,7 +39,7 @@ impl JwksClient {
     pub async fn new(
         http_client: Client,
         issuer_url: &str,
-        audience: Option<String>,
+        client_id: String,
     ) -> eyre::Result<Arc<Self>> {
         let discovery_url = format!(
             "{}/.well-known/openid-configuration",
@@ -68,7 +68,7 @@ impl JwksClient {
 
         let client = Arc::new(JwksClient {
             issuer: discovery.issuer,
-            audience,
+            client_id,
             jwks_uri: discovery.jwks_uri,
             http_client,
             key_set: RwLock::new(key_set),
@@ -147,11 +147,7 @@ impl JwksClient {
 
         let mut validation = Validation::new(alg);
         validation.set_issuer(&[&self.issuer]);
-        if let Some(aud) = &self.audience {
-            validation.set_audience(&[aud]);
-        } else {
-            validation.validate_aud = false;
-        }
+        validation.set_audience(&[&self.client_id]);
 
         jsonwebtoken::decode::<Claims>(token, &decoding_key, &validation)
             .map(|data| data.claims)
