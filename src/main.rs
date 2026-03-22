@@ -106,7 +106,7 @@ async fn main() -> eyre::Result<()> {
 
     let jwks_client = if let Some(oidc) = config.oidc {
         tracing::info!("OIDC auth enabled (issuer: {})", oidc.issuer_url);
-        Some(JwksClient::new(http_client.clone(), &oidc.issuer_url, oidc.audience).await?)
+        Some(JwksClient::new(http_client.clone(), &oidc.issuer_url, oidc.client_id).await?)
     } else {
         tracing::info!("OIDC auth disabled — set OIDC_ISSUER_URL to enable");
         None
