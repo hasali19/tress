@@ -27,6 +27,25 @@ class _FeedsPageState extends State<FeedsPage> {
     _loadData();
   }
 
+  Future<void> _deleteFeed(Feed feed) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _DeleteFeedDialog(feed: feed),
+    );
+    if (confirmed == true) {
+      try {
+        await _apiClient.deleteFeed(feed.id);
+        await _loadData();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to delete feed')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _loadData() async {
     try {
       final feeds = await _apiClient.getFeeds();
@@ -119,41 +138,7 @@ class _FeedsPageState extends State<FeedsPage> {
                 subtitle: Text(feed.url, overflow: TextOverflow.ellipsis),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Delete Feed'),
-                        content: Text(
-                          'Delete "${feed.title}" and all its posts?',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            child: const Text('Delete'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed == true) {
-                      try {
-                        await _apiClient.deleteFeed(feed.id);
-                        await _loadData();
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Failed to delete feed'),
-                            ),
-                          );
-                        }
-                      }
-                    }
-                  },
+                  onPressed: () => _deleteFeed(feed),
                 ),
               );
             },
@@ -165,6 +150,30 @@ class _FeedsPageState extends State<FeedsPage> {
         ),
         _ => const Center(child: CircularProgressIndicator()),
       },
+    );
+  }
+}
+
+class _DeleteFeedDialog extends StatelessWidget {
+  const _DeleteFeedDialog({required this.feed});
+
+  final Feed feed;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Delete Feed'),
+      content: Text('Delete "${feed.title}" and all its posts?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Delete'),
+        ),
+      ],
     );
   }
 }

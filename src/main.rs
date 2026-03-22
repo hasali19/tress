@@ -23,7 +23,7 @@ use scraper::{Html, Selector};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
-    EntityTrait, QueryFilter, QueryOrder, SqlErr,
+    EntityTrait, QueryFilter, QueryOrder, SqlErr, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -304,8 +304,16 @@ async fn delete_feed(
     extract::Path(id): extract::Path<Uuid>,
     State(app): State<App>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    match Feeds::find_by_id(id).one(&app.db).await {
-        Ok(Some(_)) => {}
+    let txn = match app.db.begin().await {
+        Ok(txn) => txn,
+        Err(e) => {
+            tracing::error!("{e}");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    let feed = match Feeds::find_by_id(id).one(&txn).await {
+        Ok(Some(feed)) => feed,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(e) => {
             tracing::error!("{e}");
@@ -315,14 +323,19 @@ async fn delete_feed(
 
     if let Err(e) = Posts::delete_many()
         .filter(posts::Column::FeedId.eq(id))
-        .exec(&app.db)
+        .exec(&txn)
         .await
     {
         tracing::error!("{e}");
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    if let Err(e) = Feeds::delete_by_id(id).exec(&app.db).await {
+    if let Err(e) = feeds::ActiveModel::from(feed).delete(&txn).await {
+        tracing::error!("{e}");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    if let Err(e) = txn.commit().await {
         tracing::error!("{e}");
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
