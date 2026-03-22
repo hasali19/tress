@@ -20,6 +20,7 @@ void main(List<String> args) async {
   await findSystemLocale();
   await initializeDateFormatting();
 
+  // TODO: avoid creating a second ApiClient below when OIDC is configured
   final config = await ApiClient().getConfig();
 
   AuthService? authService;

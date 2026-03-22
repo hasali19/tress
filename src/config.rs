@@ -4,12 +4,12 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> Self {
-        Config {
+    pub fn from_env() -> eyre::Result<Self> {
+        Ok(Config {
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://data/tress.db?mode=rwc".to_owned()),
-            oidc: OidcConfig::from_env(),
-        }
+            oidc: OidcConfig::from_env()?,
+        })
     }
 }
 
@@ -21,14 +21,16 @@ pub struct OidcConfig {
 }
 
 impl OidcConfig {
-    pub fn from_env() -> Option<Self> {
-        let issuer_url = std::env::var("OIDC_ISSUER_URL").ok()?;
+    pub fn from_env() -> eyre::Result<Option<Self>> {
+        let Ok(issuer_url) = std::env::var("OIDC_ISSUER_URL") else {
+            return Ok(None);
+        };
         let client_id = std::env::var("OIDC_CLIENT_ID")
-            .expect("OIDC_CLIENT_ID must be set when OIDC_ISSUER_URL is set");
-        Some(OidcConfig {
+            .map_err(|_| eyre::eyre!("OIDC_CLIENT_ID must be set when OIDC_ISSUER_URL is set"))?;
+        Ok(Some(OidcConfig {
             issuer_url,
             client_id,
             audience: std::env::var("OIDC_AUDIENCE").ok(),
-        })
+        }))
     }
 }
