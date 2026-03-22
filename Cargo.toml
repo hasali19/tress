@@ -19,6 +19,7 @@ itertools = "0.14.0"
 jsonwebtoken = "9"
 log = "0.4.27"
 migration = { path = "migration" }
+parking_lot = "0.12.5"
 reqwest = { version = "0.12.20", features = ["rustls-tls", "json"], default-features = false }
 rss = "2.0.12"
 scraper = "0.23.1"

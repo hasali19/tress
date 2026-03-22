@@ -6,7 +6,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 #[derive(Debug, Error)]
 pub enum AuthError {
@@ -98,7 +98,7 @@ impl JwksClient {
             .error_for_status()?
             .json()
             .await?;
-        *self.key_set.write().unwrap() = key_set;
+        *self.key_set.write() = key_set;
         tracing::debug!("JWKS refreshed");
         Ok(())
     }
@@ -111,7 +111,7 @@ impl JwksClient {
             Some(kid) => {
                 // Try with cached keys first
                 {
-                    let key_set = self.key_set.read().unwrap();
+                    let key_set = self.key_set.read();
                     if let Some(jwk) = key_set.find(kid) {
                         return self.decode_with_jwk(token, header.alg, jwk);
                     }
@@ -120,7 +120,7 @@ impl JwksClient {
                 if let Err(e) = self.refresh_keys().await {
                     tracing::warn!("JWKS refresh failed: {e}");
                 }
-                let key_set = self.key_set.read().unwrap();
+                let key_set = self.key_set.read();
                 let jwk = key_set
                     .find(kid)
                     .ok_or_else(|| AuthError::InvalidToken("unknown key id".to_string()))?;
@@ -128,7 +128,7 @@ impl JwksClient {
             }
             None => {
                 // No kid in token — try all cached keys
-                let key_set = self.key_set.read().unwrap();
+                let key_set = self.key_set.read();
                 for jwk in &key_set.keys {
                     if let Ok(claims) = self.decode_with_jwk(token, header.alg, jwk) {
                         return Ok(claims);
