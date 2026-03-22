@@ -38,7 +38,7 @@ use web_push_native::jwt_simple::prelude::{ECDSAP256KeyPairLike, ES256KeyPair};
 use web_push_native::p256::PublicKey;
 use web_push_native::{Auth, WebPushBuilder};
 
-use crate::config::Config;
+use crate::config::{Config, OidcConfig};
 use crate::entities::prelude::*;
 use crate::entities::{feeds, posts, push_subscriptions};
 use crate::jwks::JwksClient;
@@ -49,6 +49,7 @@ struct App {
     sync_sender: mpsc::UnboundedSender<SyncRequest>,
     http_client: Client,
     vapid_key: Arc<ES256KeyPair>,
+    oidc: Option<OidcConfig>,
 }
 
 #[tokio::main]
@@ -101,6 +102,8 @@ async fn main() -> eyre::Result<()> {
         })
         .build()?;
 
+    let oidc_config = config.oidc.clone();
+
     let jwks_client = if let Some(oidc) = config.oidc {
         tracing::info!("OIDC auth enabled (issuer: {})", oidc.issuer_url);
         Some(JwksClient::new(http_client.clone(), &oidc.issuer_url, oidc.audience).await?)
@@ -121,8 +124,7 @@ async fn main() -> eyre::Result<()> {
         push_client,
     ));
 
-    let api = Router::new()
-        .route("/config", get(get_config))
+    let protected_api = Router::new()
         .route("/push_subscriptions", post(create_push_subscription))
         .route("/feeds", get(get_feeds).post(add_feed))
         .route("/feeds/{id}", get(get_feed))
@@ -135,12 +137,17 @@ async fn main() -> eyre::Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             jwks_client,
             auth_middleware::auth_middleware,
-        ))
+        ));
+
+    let api = Router::new()
+        .route("/config", get(get_config))
+        .merge(protected_api)
         .with_state(App {
             db: db.clone(),
             sync_sender,
             http_client,
             vapid_key,
+            oidc: oidc_config,
         });
 
     let app = Router::new()
@@ -245,10 +252,18 @@ async fn get_config(State(app): State<App>) -> impl IntoResponse {
         .public_key()
         .to_bytes_uncompressed();
 
+    let oidc = app.oidc.as_ref().map(|oidc| {
+        json!({
+            "issuer_url": oidc.issuer_url,
+            "client_id": oidc.client_id,
+        })
+    });
+
     Json(json!({
         "vapid": {
             "public_key": Base64UrlUnpadded::encode_string(&public_key_bytes),
-        }
+        },
+        "oidc": oidc,
     }))
 }
 
