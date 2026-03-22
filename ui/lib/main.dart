@@ -1,14 +1,13 @@
 import 'dart:convert';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get_it/get_it.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/find_locale.dart';
 
+import 'api_client.dart';
 import 'router.dart';
-
-final _dio = Dio();
 
 const _pushChannel = MethodChannel('tress.hasali.dev/push');
 
@@ -20,8 +19,9 @@ void main(List<String> args) async {
   await findSystemLocale();
   await initializeDateFormatting();
 
-  final configRes = await _dio.get('https://tress.hasali.uk/api/config');
-  final config = configRes.data;
+  GetIt.instance.registerSingleton<ApiClient>(ApiClient());
+
+  final config = await GetIt.instance<ApiClient>().getConfig();
 
   await _pushChannel.invokeMethod('register', {
     'vapid_key': config['vapid']['public_key'],
@@ -34,6 +34,8 @@ void main(List<String> args) async {
 void pushEntrypoint() {
   WidgetsFlutterBinding.ensureInitialized();
 
+  final apiClient = ApiClient();
+
   String? url;
 
   _pushChannel.setMethodCallHandler((call) async {
@@ -42,7 +44,7 @@ void pushEntrypoint() {
         final newUrl = call.arguments['url'];
         if (newUrl != url) {
           url = newUrl;
-          _registerPushEndpoint(
+          await apiClient.registerPushSubscription(
             newUrl,
             call.arguments['keys']['auth'],
             call.arguments['keys']['pub'],
@@ -50,29 +52,14 @@ void pushEntrypoint() {
         }
         break;
       case 'onMessage':
-        _handlePushMessage(call.arguments['content'], '');
+        _handlePushMessage(apiClient, call.arguments['content'], '');
         break;
     }
   });
 }
 
-Future<void> _registerPushEndpoint(
-  String url,
-  String? auth,
-  String? pubKey,
-) async {
-  await _dio.post(
-    'https://tress.hasali.uk/api/push_subscriptions',
-    data: {
-      'subscription': {
-        'endpoint': url,
-        'keys': {'auth': auth, 'p256dh': pubKey},
-      },
-    },
-  );
-}
-
 Future<void> _handlePushMessage(
+  ApiClient apiClient,
   Uint8List messageContent,
   String instance,
 ) async {
@@ -80,22 +67,15 @@ Future<void> _handlePushMessage(
 
   final messageData = jsonDecode(utf8.decode(messageContent));
 
-  final post = await _dio
-      .get('https://tress.hasali.uk/api/posts/${messageData['id']}')
-      .then((res) => res.data);
-
-  final feed = await _dio
-      .get('https://tress.hasali.uk/api/feeds/${post['feed_id']}')
-      .then((res) => res.data);
-
-  final String id = post['id'];
+  final post = await apiClient.getPost(messageData['id']);
+  final feed = await apiClient.getFeed(post.feedId);
 
   await notificationsChannel.invokeMethod('post', {
-    'id': id.hashCode,
+    'id': post.id.hashCode,
     'title': messageData['title'],
-    'subtext': feed['title'],
-    'content': post['description'],
-    'url': post['url'],
+    'subtext': feed.title,
+    'content': post.description,
+    'url': post.url,
   });
 }
 

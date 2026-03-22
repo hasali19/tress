@@ -1,10 +1,9 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:get_it/get_it.dart';
 
+import '../api_client.dart';
 import '../models.dart';
-
-final _dio = Dio();
 
 @RoutePage()
 class FeedsPage extends StatefulWidget {
@@ -15,6 +14,7 @@ class FeedsPage extends StatefulWidget {
 }
 
 class _FeedsPageState extends State<FeedsPage> {
+  late final ApiClient _apiClient;
   List<Feed>? _feeds;
   Object? _error;
 
@@ -23,15 +23,13 @@ class _FeedsPageState extends State<FeedsPage> {
   @override
   void initState() {
     super.initState();
+    _apiClient = GetIt.instance<ApiClient>();
     _loadData();
   }
 
   Future<void> _loadData() async {
     try {
-      final response = await _dio.get('https://tress.hasali.uk/api/feeds');
-      final feeds = (response.data as List<dynamic>)
-          .map((feed) => Feed.fromJson(feed))
-          .toList();
+      final feeds = await _apiClient.getFeeds();
       setState(() {
         _feeds = feeds;
         _error = null;
@@ -77,10 +75,7 @@ class _FeedsPageState extends State<FeedsPage> {
                         onPressed: () async {
                           final url = _urlController.text;
                           try {
-                            await _dio.post(
-                              'https://tress.hasali.uk/api/feeds',
-                              data: {'url': url},
-                            );
+                            await _apiClient.addFeed(url);
                             await _loadData();
                           } catch (e) {
                             if (context.mounted) {

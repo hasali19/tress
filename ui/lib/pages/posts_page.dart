@@ -1,15 +1,15 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
+import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
+import '../api_client.dart';
 import '../models.dart';
 
-final _dio = Dio();
 final _dateFormat = DateFormat.yMMMd();
 
 @RoutePage()
@@ -21,6 +21,7 @@ class PostsPage extends StatefulWidget {
 }
 
 class _PostsPageState extends State<PostsPage> {
+  late final ApiClient _apiClient;
   Map<String, Feed>? _feeds;
   List<Post>? _posts;
   Object? _error;
@@ -28,31 +29,21 @@ class _PostsPageState extends State<PostsPage> {
   @override
   void initState() {
     super.initState();
+    _apiClient = GetIt.instance<ApiClient>();
     _loadData();
     Permission.notification.request();
   }
 
   Future<void> _loadData() async {
     try {
-      final [feedsResponse, postsResponse] = await Future.wait([
-        _dio.get('https://tress.hasali.uk/api/feeds'),
-        _dio.get('https://tress.hasali.uk/api/posts'),
+      final [feeds, posts] = await Future.wait([
+        _apiClient.getFeeds(),
+        _apiClient.getPosts(),
       ]);
 
-      Map<String, Feed> feeds = {};
-      for (final Feed feed in feedsResponse.data.map(
-        (feed) => Feed.fromJson(feed),
-      )) {
-        feeds[feed.id] = feed;
-      }
-
-      final posts = (postsResponse.data as List<dynamic>)
-          .map((post) => Post.fromJson(post))
-          .toList();
-
       setState(() {
-        _feeds = feeds;
-        _posts = posts;
+        _feeds = {for (final feed in feeds as List<Feed>) feed.id: feed};
+        _posts = posts as List<Post>;
         _error = null;
       });
     } catch (e) {
