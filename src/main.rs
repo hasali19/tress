@@ -23,7 +23,8 @@ use scraper::{Html, Selector};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
-    DbErr, EntityTrait, ModelTrait, QueryFilter, QueryOrder, SqlErr, TransactionTrait,
+    DbErr, EntityTrait, IntoActiveModel, ModelTrait, QueryFilter, QueryOrder, SqlErr,
+    TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -300,6 +301,7 @@ struct FeedResponse {
     id: String,
     title: String,
     url: String,
+    last_synced_at: Option<i64>,
 }
 
 async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, ApiError> {
@@ -311,6 +313,7 @@ async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, ApiError
                 id: feed.id.to_string(),
                 title: feed.title,
                 url: feed.url,
+                last_synced_at: feed.last_synced_at,
             })
             .collect_vec(),
     ))
@@ -328,6 +331,7 @@ async fn get_feed(
         id: feed.id.to_string(),
         title: feed.title,
         url: feed.url,
+        last_synced_at: feed.last_synced_at,
     }))
 }
 
@@ -390,6 +394,7 @@ async fn add_feed(
         id: feed.id.to_string(),
         title: feed.title,
         url: feed.url,
+        last_synced_at: feed.last_synced_at,
     }))
 }
 
@@ -716,6 +721,10 @@ impl SyncWorker {
                     }
                 }
             }
+
+            let mut active_feed = feed_model.into_active_model();
+            active_feed.last_synced_at = ActiveValue::Set(Some(Local::now().timestamp()));
+            active_feed.update(&self.db).await?;
         }
 
         Ok(())

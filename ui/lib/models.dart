@@ -2,11 +2,23 @@ class Feed {
   final String id;
   final String title;
   final String url;
+  final DateTime? lastSyncedAt;
 
-  Feed({required this.id, required this.title, required this.url});
+  Feed({
+    required this.id,
+    required this.title,
+    required this.url,
+    required this.lastSyncedAt,
+  });
 
-  factory Feed.fromJson(Map<String, dynamic> json) =>
-      Feed(id: json['id'], title: json['title'], url: json['url']);
+  factory Feed.fromJson(Map<String, dynamic> json) => Feed(
+    id: json['id'],
+    title: json['title'],
+    url: json['url'],
+    lastSyncedAt: json['last_synced_at'] != null
+        ? DateTime.fromMillisecondsSinceEpoch(json['last_synced_at'] * 1000)
+        : null,
+  );
 }
 
 class Post {
