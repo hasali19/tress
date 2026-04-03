@@ -721,13 +721,9 @@ impl SyncWorker {
                 }
             }
 
-            feeds::ActiveModel {
-                id: ActiveValue::Unchanged(feed_model.id),
-                last_synced_at: ActiveValue::Set(Some(Local::now().to_rfc3339())),
-                ..Default::default()
-            }
-            .update(&self.db)
-            .await?;
+            let mut active_feed = feed_model.into_active_model();
+            active_feed.last_synced_at = ActiveValue::Set(Some(Local::now().to_rfc3339()));
+            active_feed.update(&self.db).await?;
         }
 
         Ok(())
