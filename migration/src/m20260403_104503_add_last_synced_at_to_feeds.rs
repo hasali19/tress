@@ -10,7 +10,7 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table("feeds")
-                    .add_column(string_null("last_synced_at"))
+                    .add_column(big_integer_null("last_synced_at"))
                     .to_owned(),
             )
             .await
