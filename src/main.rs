@@ -23,7 +23,8 @@ use scraper::{Html, Selector};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
-    DbErr, EntityTrait, ModelTrait, QueryFilter, QueryOrder, SqlErr, TransactionTrait,
+    DbErr, EntityTrait, IntoActiveModel, ModelTrait, QueryFilter, QueryOrder, SqlErr,
+    TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -300,7 +301,7 @@ struct FeedResponse {
     id: String,
     title: String,
     url: String,
-    last_synced_at: Option<String>,
+    last_synced_at: Option<i64>,
 }
 
 async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, ApiError> {
@@ -722,7 +723,7 @@ impl SyncWorker {
             }
 
             let mut active_feed = feed_model.into_active_model();
-            active_feed.last_synced_at = ActiveValue::Set(Some(Local::now().to_rfc3339()));
+            active_feed.last_synced_at = ActiveValue::Set(Some(Local::now().timestamp()));
             active_feed.update(&self.db).await?;
         }
 

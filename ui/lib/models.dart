@@ -16,7 +16,7 @@ class Feed {
     title: json['title'],
     url: json['url'],
     lastSyncedAt: json['last_synced_at'] != null
-        ? DateTime.parse(json['last_synced_at'])
+        ? DateTime.fromMillisecondsSinceEpoch(json['last_synced_at'] * 1000)
         : null,
   );
 }

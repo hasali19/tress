@@ -12,7 +12,7 @@ pub struct Model {
     pub title: String,
     pub icon: Option<String>,
     pub thumbnail: Option<String>,
-    pub last_synced_at: Option<String>,
+    pub last_synced_at: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
