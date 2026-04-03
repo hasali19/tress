@@ -133,6 +133,7 @@ class _FeedsPageState extends State<FeedsPage> {
             itemCount: feeds.length,
             itemBuilder: (context, index) {
               final feed = feeds[index];
+              final lastSyncedAt = feed.lastSyncedAt;
               return ListTile(
                 leading: const Icon(Icons.rss_feed),
                 title: Text(feed.title),
@@ -140,14 +141,13 @@ class _FeedsPageState extends State<FeedsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(feed.url, overflow: TextOverflow.ellipsis),
-                    Text(
-                      feed.lastSyncedAt != null
-                          ? 'Last synced: ${DateFormat.yMd().add_Hm().format(feed.lastSyncedAt!.toLocal())}'
-                          : 'Never synced',
-                    ),
+                    if (lastSyncedAt != null)
+                      Text(
+                        'Last synced: ${DateFormat.yMd().add_Hm().format(lastSyncedAt.toLocal())}',
+                      ),
                   ],
                 ),
-                isThreeLine: true,
+                isThreeLine: lastSyncedAt != null,
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () => _deleteFeed(feed),
