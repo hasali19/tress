@@ -1,6 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import 'package:intl/intl.dart';
 
 import '../api_client.dart';
 import '../models.dart';
@@ -135,7 +136,18 @@ class _FeedsPageState extends State<FeedsPage> {
               return ListTile(
                 leading: const Icon(Icons.rss_feed),
                 title: Text(feed.title),
-                subtitle: Text(feed.url, overflow: TextOverflow.ellipsis),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(feed.url, overflow: TextOverflow.ellipsis),
+                    Text(
+                      feed.lastSyncedAt != null
+                          ? 'Last synced: ${DateFormat.yMd().add_Hm().format(feed.lastSyncedAt!.toLocal())}'
+                          : 'Never synced',
+                    ),
+                  ],
+                ),
+                isThreeLine: true,
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () => _deleteFeed(feed),

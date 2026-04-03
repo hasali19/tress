@@ -300,6 +300,7 @@ struct FeedResponse {
     id: String,
     title: String,
     url: String,
+    last_synced_at: Option<String>,
 }
 
 async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, ApiError> {
@@ -311,6 +312,7 @@ async fn get_feeds(State(app): State<App>) -> Result<impl IntoResponse, ApiError
                 id: feed.id.to_string(),
                 title: feed.title,
                 url: feed.url,
+                last_synced_at: feed.last_synced_at,
             })
             .collect_vec(),
     ))
@@ -328,6 +330,7 @@ async fn get_feed(
         id: feed.id.to_string(),
         title: feed.title,
         url: feed.url,
+        last_synced_at: feed.last_synced_at,
     }))
 }
 
@@ -390,6 +393,7 @@ async fn add_feed(
         id: feed.id.to_string(),
         title: feed.title,
         url: feed.url,
+        last_synced_at: feed.last_synced_at,
     }))
 }
 
@@ -716,6 +720,14 @@ impl SyncWorker {
                     }
                 }
             }
+
+            feeds::ActiveModel {
+                id: ActiveValue::Unchanged(feed_model.id),
+                last_synced_at: ActiveValue::Set(Some(Local::now().to_rfc3339())),
+                ..Default::default()
+            }
+            .update(&self.db)
+            .await?;
         }
 
         Ok(())
