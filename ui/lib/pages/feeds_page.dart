@@ -134,7 +134,9 @@ class _FeedsPageState extends State<FeedsPage> {
             itemBuilder: (context, index) {
               final feed = feeds[index];
               final lastSyncedAt = feed.lastSyncedAt != null
-                  ? DateFormat.yMd().add_Hm().format(feed.lastSyncedAt!.toLocal())
+                  ? DateFormat.yMd().add_Hm().format(
+                      feed.lastSyncedAt!.toLocal(),
+                    )
                   : null;
               return ListTile(
                 leading: const Icon(Icons.rss_feed),
@@ -144,9 +146,7 @@ class _FeedsPageState extends State<FeedsPage> {
                   children: [
                     Text(feed.url, overflow: TextOverflow.ellipsis),
                     if (lastSyncedAt != null)
-                      Text(
-                        'Last synced: $lastSyncedAt',
-                      ),
+                      Text('Last synced: $lastSyncedAt'),
                   ],
                 ),
                 isThreeLine: lastSyncedAt != null,
