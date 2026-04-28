@@ -32,7 +32,7 @@ use thiserror::Error;
 use tokio::signal;
 use tokio::sync::mpsc;
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use web_push_native::jwt_simple::prelude::{ECDSAP256KeyPairLike, ES256KeyPair};
@@ -275,14 +275,14 @@ enum ApiError {
 
 impl From<DbErr> for ApiError {
     fn from(e: DbErr) -> Self {
-        tracing::error!("{e}");
+        error!("{e}");
         Self::Internal
     }
 }
 
 impl From<eyre::Report> for ApiError {
     fn from(e: eyre::Report) -> Self {
-        tracing::error!("{e:?}");
+        error!("{e:?}");
         Self::Internal
     }
 }
@@ -473,7 +473,7 @@ async fn run_sync_worker(
 
     while let Some(req) = receiver.recv().await {
         if let Err(e) = worker.process_request(req).await {
-            tracing::error!("{e:?}");
+            error!("{e:?}");
         }
     }
 }
@@ -546,15 +546,15 @@ impl SyncWorker {
                             thumbnail: ActiveValue::Set(None),
                         };
 
-                        debug!(?post.title, ?post.url, "inserting post");
+                        trace!(?post.title, ?post.url, "inserting post");
 
                         let post = match post.insert(&self.db).await {
                             Ok(post) => post,
                             Err(e) => {
                                 if let Some(SqlErr::UniqueConstraintViolation(_)) = e.sql_err() {
-                                    debug!("skipping post as it already exists");
+                                    trace!("skipping post as it already exists");
                                 } else {
-                                    tracing::error!("{e}");
+                                    error!("{e}");
                                 }
                                 continue;
                             }
@@ -605,7 +605,7 @@ impl SyncWorker {
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!(
+                                        error!(
                                             subscription.id,
                                             subscription.endpoint,
                                             "Failed to send push message: {e}",
@@ -619,7 +619,7 @@ impl SyncWorker {
                 Feed::Rss(channel) => {
                     for item in channel.items {
                         let Some(content_url) = item.link else {
-                            tracing::error!("RSS post without link: {:?}", item);
+                            error!("RSS post without link: {:?}", item);
                             continue;
                         };
 
@@ -650,15 +650,15 @@ impl SyncWorker {
                             thumbnail: ActiveValue::Set(None),
                         };
 
-                        debug!(?post.title, ?post.url, "inserting post");
+                        trace!(?post.title, ?post.url, "inserting post");
 
                         let post = match post.insert(&self.db).await {
                             Ok(post) => post,
                             Err(e) => {
                                 if let Some(SqlErr::UniqueConstraintViolation(_)) = e.sql_err() {
-                                    debug!("skipping post as it already exists");
+                                    trace!("skipping post as it already exists");
                                 } else {
-                                    tracing::error!("{e}");
+                                    error!("{e}");
                                 }
                                 continue;
                             }
@@ -709,7 +709,7 @@ impl SyncWorker {
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!(
+                                        error!(
                                             subscription.id,
                                             subscription.endpoint,
                                             "Failed to send push message: {e}",
