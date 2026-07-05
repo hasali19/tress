@@ -200,6 +200,28 @@ impl PushClient {
     }
 }
 
+/// Web Push payloads must stay well under ~4KB; cap free-text fields so a
+/// feed with an unusually long description can't blow the budget.
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() > max_chars {
+        format!("{}…", s.chars().take(max_chars).collect::<String>())
+    } else {
+        s.to_owned()
+    }
+}
+
+fn build_push_payload(feed: &feeds::Model, post: &posts::Model) -> serde_json::Value {
+    json!({
+        "id": post.id.to_string(),
+        "title": post.title,
+        "description": post.description.as_deref().map(|d| truncate_chars(d, 500)),
+        "thumbnail": post.thumbnail,
+        "url": post.url,
+        "feed_title": feed.title,
+        "feed_icon": feed.icon,
+    })
+}
+
 async fn init_db(url: &str) -> eyre::Result<DatabaseConnection> {
     let mut options = ConnectOptions::new(url);
     options
@@ -485,6 +507,34 @@ struct SyncWorker {
 }
 
 impl SyncWorker {
+    async fn notify_subscribers(
+        &self,
+        feed: &feeds::Model,
+        post: &posts::Model,
+    ) -> eyre::Result<()> {
+        let payload = build_push_payload(feed, post);
+
+        for subscription in PushSubscriptions::find().all(&self.db).await? {
+            match self.push_client.send_message(&subscription, &payload).await {
+                Ok(is_valid) => {
+                    if !is_valid {
+                        PushSubscriptions::delete_by_id(subscription.id)
+                            .exec(&self.db)
+                            .await?;
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        subscription.id,
+                        subscription.endpoint, "Failed to send push message: {e}",
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     async fn process_request(&self, req: SyncRequest) -> eyre::Result<()> {
         let feeds = match req.scope {
             SyncScope::All => Feeds::find().all(&self.db).await?,
@@ -576,7 +626,7 @@ impl SyncWorker {
                                 .map(ToOwned::to_owned)
                         };
 
-                        posts::ActiveModel {
+                        let post = posts::ActiveModel {
                             id: ActiveValue::Unchanged(post_id),
                             thumbnail: ActiveValue::Set(image),
                             ..Default::default()
@@ -585,34 +635,7 @@ impl SyncWorker {
                         .await?;
 
                         if req.notify {
-                            for subscription in PushSubscriptions::find().all(&self.db).await? {
-                                match self
-                                    .push_client
-                                    .send_message(
-                                        &subscription,
-                                        &json!({
-                                            "id": post.id.to_string(),
-                                            "title": post.title,
-                                        }),
-                                    )
-                                    .await
-                                {
-                                    Ok(is_valid) => {
-                                        if !is_valid {
-                                            PushSubscriptions::delete_by_id(subscription.id)
-                                                .exec(&self.db)
-                                                .await?;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            subscription.id,
-                                            subscription.endpoint,
-                                            "Failed to send push message: {e}",
-                                        );
-                                    }
-                                }
-                            }
+                            self.notify_subscribers(&feed_model, &post).await?;
                         }
                     }
                 }
@@ -680,7 +703,7 @@ impl SyncWorker {
                                 .map(ToOwned::to_owned)
                         };
 
-                        posts::ActiveModel {
+                        let post = posts::ActiveModel {
                             id: ActiveValue::Unchanged(post_id),
                             thumbnail: ActiveValue::Set(image),
                             ..Default::default()
@@ -689,34 +712,7 @@ impl SyncWorker {
                         .await?;
 
                         if req.notify {
-                            for subscription in PushSubscriptions::find().all(&self.db).await? {
-                                match self
-                                    .push_client
-                                    .send_message(
-                                        &subscription,
-                                        &json!({
-                                            "id": post.id.to_string(),
-                                            "title": post.title,
-                                        }),
-                                    )
-                                    .await
-                                {
-                                    Ok(is_valid) => {
-                                        if !is_valid {
-                                            PushSubscriptions::delete_by_id(subscription.id)
-                                                .exec(&self.db)
-                                                .await?;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            subscription.id,
-                                            subscription.endpoint,
-                                            "Failed to send push message: {e}",
-                                        );
-                                    }
-                                }
-                            }
+                            self.notify_subscribers(&feed_model, &post).await?;
                         }
                     }
                 }

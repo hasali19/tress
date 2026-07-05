@@ -14,6 +14,18 @@ const _pushChannel = MethodChannel('tress.hasali.dev/push');
 
 final _appRouter = AppRouter();
 
+Future<AuthService?> _initAuthService(Map<String, dynamic> config) async {
+  final oidcConfig = config['oidc'];
+  if (oidcConfig == null) {
+    return null;
+  }
+
+  return AuthService.init(
+    issuerUri: Uri.parse(oidcConfig['issuer_url']),
+    clientId: oidcConfig['client_id'],
+  );
+}
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -23,13 +35,8 @@ void main(List<String> args) async {
   // TODO: avoid creating a second ApiClient below when OIDC is configured
   final config = await ApiClient().getConfig();
 
-  AuthService? authService;
-  final oidcConfig = config['oidc'];
-  if (oidcConfig != null) {
-    authService = await AuthService.init(
-      issuerUri: Uri.parse(oidcConfig['issuer_url']),
-      clientId: oidcConfig['client_id'],
-    );
+  final authService = await _initAuthService(config);
+  if (authService != null) {
     GetIt.instance.registerSingleton<AuthService>(authService);
 
     if (!authService.isAuthenticated) {
@@ -52,8 +59,6 @@ void main(List<String> args) async {
 void pushEntrypoint() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final apiClient = ApiClient();
-
   String? url;
 
   _pushChannel.setMethodCallHandler((call) async {
@@ -62,7 +67,15 @@ void pushEntrypoint() {
         final newUrl = call.arguments['url'];
         if (newUrl != url) {
           url = newUrl;
-          await apiClient.registerPushSubscription(
+
+          final config = await ApiClient().getConfig();
+          final authService = await _initAuthService(config);
+          // No user is present to complete an interactive login from this
+          // headless background isolate, so just silently refresh whatever
+          // session is already cached, if any.
+          await authService?.tryRefresh();
+
+          await ApiClient(authService: authService).registerPushSubscription(
             newUrl,
             call.arguments['keys']['auth'],
             call.arguments['keys']['pub'],
@@ -70,30 +83,24 @@ void pushEntrypoint() {
         }
         break;
       case 'onMessage':
-        _handlePushMessage(apiClient, call.arguments['content'], '');
+        _handlePushMessage(call.arguments['content']);
         break;
     }
   });
 }
 
-Future<void> _handlePushMessage(
-  ApiClient apiClient,
-  Uint8List messageContent,
-  String instance,
-) async {
+Future<void> _handlePushMessage(Uint8List messageContent) async {
   const notificationsChannel = MethodChannel('tress.hasali.dev/notifications');
 
-  final messageData = jsonDecode(utf8.decode(messageContent));
-
-  final post = await apiClient.getPost(messageData['id']);
-  final feed = await apiClient.getFeed(post.feedId);
+  final messageData =
+      jsonDecode(utf8.decode(messageContent)) as Map<String, dynamic>;
 
   await notificationsChannel.invokeMethod('post', {
-    'id': post.id.hashCode,
+    'id': (messageData['id'] as String).hashCode,
     'title': messageData['title'],
-    'subtext': feed.title,
-    'content': post.description,
-    'url': post.url,
+    'subtext': messageData['feed_title'],
+    'content': messageData['description'],
+    'url': messageData['url'],
   });
 }
 
