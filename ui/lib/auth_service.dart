@@ -13,7 +13,8 @@ class AuthService {
         store: OidcDefaultStore(),
         settings: OidcUserManagerSettings(
           redirectUri: _redirectUri,
-          scope: ['openid', 'profile'],
+          scope: ['openid', 'profile', 'offline_access'],
+          supportOfflineAuth: true,
         ),
       );
 
@@ -38,5 +39,21 @@ class AuthService {
 
   Future<void> logout() async {
     await _manager.logout();
+  }
+
+  /// Attempts a silent, non-interactive token refresh using the cached
+  /// refresh token. Used by the background push isolate, which has no way
+  /// to run an interactive login flow. Best-effort: falls back to whatever
+  /// is cached if refresh isn't possible (e.g. offline, no refresh token).
+  Future<void> tryRefresh() async {
+    if (_manager.currentUser == null) {
+      return;
+    }
+
+    try {
+      await _manager.refreshToken();
+    } catch (_) {
+      // Ignore; requests will use whatever token is currently cached.
+    }
   }
 }
