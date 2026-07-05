@@ -55,27 +55,32 @@ void main(List<String> args) async {
   runApp(const MyApp());
 }
 
+Future<ApiClient> _initBackgroundApiClient() async {
+  final config = await ApiClient().getConfig();
+  final authService = await _initAuthService(config);
+  // No user is present to complete an interactive login from this headless
+  // background isolate, so just silently refresh whatever session the
+  // foreground app already established, if any.
+  await authService?.tryRefresh();
+  return ApiClient(authService: authService);
+}
+
 @pragma('vm:entry-point')
 void pushEntrypoint() {
   WidgetsFlutterBinding.ensureInitialized();
 
   String? url;
+  ApiClient? apiClient;
 
   _pushChannel.setMethodCallHandler((call) async {
+    apiClient ??= await _initBackgroundApiClient();
+
     switch (call.method) {
       case 'onNewEndpoint':
         final newUrl = call.arguments['url'];
         if (newUrl != url) {
           url = newUrl;
-
-          final config = await ApiClient().getConfig();
-          final authService = await _initAuthService(config);
-          // No user is present to complete an interactive login from this
-          // headless background isolate, so just silently refresh whatever
-          // session is already cached, if any.
-          await authService?.tryRefresh();
-
-          await ApiClient(authService: authService).registerPushSubscription(
+          await apiClient!.registerPushSubscription(
             newUrl,
             call.arguments['keys']['auth'],
             call.arguments['keys']['pub'],
@@ -83,24 +88,30 @@ void pushEntrypoint() {
         }
         break;
       case 'onMessage':
-        _handlePushMessage(call.arguments['content']);
+        _handlePushMessage(apiClient!, call.arguments['content'], '');
         break;
     }
   });
 }
 
-Future<void> _handlePushMessage(Uint8List messageContent) async {
+Future<void> _handlePushMessage(
+  ApiClient apiClient,
+  Uint8List messageContent,
+  String instance,
+) async {
   const notificationsChannel = MethodChannel('tress.hasali.dev/notifications');
 
-  final messageData =
-      jsonDecode(utf8.decode(messageContent)) as Map<String, dynamic>;
+  final messageData = jsonDecode(utf8.decode(messageContent));
+
+  final post = await apiClient.getPost(messageData['id']);
+  final feed = await apiClient.getFeed(post.feedId);
 
   await notificationsChannel.invokeMethod('post', {
-    'id': (messageData['id'] as String).hashCode,
+    'id': post.id.hashCode,
     'title': messageData['title'],
-    'subtext': messageData['feed_title'],
-    'content': messageData['description'],
-    'url': messageData['url'],
+    'subtext': feed.title,
+    'content': post.description,
+    'url': post.url,
   });
 }
 
