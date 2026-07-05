@@ -13,7 +13,7 @@ class AuthService {
         store: OidcDefaultStore(),
         settings: OidcUserManagerSettings(
           redirectUri: _redirectUri,
-          scope: ['openid', 'profile', 'offline_access'],
+          scope: ['openid', 'profile'],
           supportOfflineAuth: true,
         ),
       );
