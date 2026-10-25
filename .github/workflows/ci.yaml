@@ -65,7 +65,8 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: beta
+          channel: stable
+          flutter-version: 3.47.x
 
       - name: Check formatting
         working-directory: ui
@@ -85,7 +86,8 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: beta
+          channel: stable
+          flutter-version: 3.47.x
 
       - uses: actions/setup-java@v4
         with:
