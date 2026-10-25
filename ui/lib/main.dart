@@ -14,6 +14,18 @@ const _pushChannel = MethodChannel('tress.hasali.dev/push');
 
 final _appRouter = AppRouter();
 
+Future<AuthService?> _initAuthService(Map<String, dynamic> config) async {
+  final oidcConfig = config['oidc'];
+  if (oidcConfig == null) {
+    return null;
+  }
+
+  return AuthService.init(
+    issuerUri: Uri.parse(oidcConfig['issuer_url']),
+    clientId: oidcConfig['client_id'],
+  );
+}
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -23,13 +35,8 @@ void main(List<String> args) async {
   // TODO: avoid creating a second ApiClient below when OIDC is configured
   final config = await ApiClient().getConfig();
 
-  AuthService? authService;
-  final oidcConfig = config['oidc'];
-  if (oidcConfig != null) {
-    authService = await AuthService.init(
-      issuerUri: Uri.parse(oidcConfig['issuer_url']),
-      clientId: oidcConfig['client_id'],
-    );
+  final authService = await _initAuthService(config);
+  if (authService != null) {
     GetIt.instance.registerSingleton<AuthService>(authService);
 
     if (!authService.isAuthenticated) {
@@ -48,21 +55,32 @@ void main(List<String> args) async {
   runApp(const MyApp());
 }
 
+Future<ApiClient> _initBackgroundApiClient() async {
+  final config = await ApiClient().getConfig();
+  final authService = await _initAuthService(config);
+  // No user is present to complete an interactive login from this headless
+  // background isolate, so just silently refresh whatever session the
+  // foreground app already established, if any.
+  await authService?.tryRefresh();
+  return ApiClient(authService: authService);
+}
+
 @pragma('vm:entry-point')
 void pushEntrypoint() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final apiClient = ApiClient();
-
   String? url;
+  ApiClient? apiClient;
 
   _pushChannel.setMethodCallHandler((call) async {
+    apiClient ??= await _initBackgroundApiClient();
+
     switch (call.method) {
       case 'onNewEndpoint':
         final newUrl = call.arguments['url'];
         if (newUrl != url) {
           url = newUrl;
-          await apiClient.registerPushSubscription(
+          await apiClient!.registerPushSubscription(
             newUrl,
             call.arguments['keys']['auth'],
             call.arguments['keys']['pub'],
@@ -70,7 +88,7 @@ void pushEntrypoint() {
         }
         break;
       case 'onMessage':
-        _handlePushMessage(apiClient, call.arguments['content'], '');
+        _handlePushMessage(apiClient!, call.arguments['content'], '');
         break;
     }
   });
